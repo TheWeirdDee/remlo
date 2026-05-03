@@ -167,9 +167,23 @@ const spec = {
             description: 'Optional token address filter (defaults to pathUSD)',
           },
         ],
+        requestBody: {
+          required: false,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                description: 'No body required. Use the `token` query parameter to filter.',
+                properties: {
+                  token: { type: 'string', description: 'Optional token address filter' },
+                },
+              },
+            },
+          },
+        },
         'x-payment-info': {
           price: { mode: 'fixed', currency: 'USD', amount: '0.010000' },
-          protocols: [{ x402: {} }, { mpp: { method: '', intent: '', currency: '' } }],
+          protocols: [{ x402: {} }, { mpp: { method: 'tempo', intent: 'charge', currency: '0x20C000000000000000000000b9537d11c60E8b50' } }],
           'x-networks': ['eip155:4217', 'eip155:8453', 'solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp'],
         },
         responses: {
@@ -211,7 +225,7 @@ const spec = {
         tags: ['Payroll'],
         'x-payment-info': {
           price: { mode: 'fixed', currency: 'USD', amount: '1.000000' },
-          protocols: [{ x402: {} }, { mpp: { method: '', intent: '', currency: '' } }],
+          protocols: [{ x402: {} }, { mpp: { method: 'tempo', intent: 'charge', currency: '0x20C000000000000000000000b9537d11c60E8b50' } }],
           'x-networks': ['eip155:4217'],
         },
         requestBody: {
@@ -268,7 +282,7 @@ const spec = {
         tags: ['Employee'],
         'x-payment-info': {
           price: { mode: 'fixed', currency: 'USD', amount: '0.500000' },
-          protocols: [{ x402: {} }, { mpp: { method: '', intent: '', currency: '' } }],
+          protocols: [{ x402: {} }, { mpp: { method: 'tempo', intent: 'charge', currency: '0x20C000000000000000000000b9537d11c60E8b50' } }],
           'x-networks': ['eip155:4217'],
         },
         requestBody: {
@@ -323,7 +337,7 @@ const spec = {
         tags: ['Compliance'],
         'x-payment-info': {
           price: { mode: 'fixed', currency: 'USD', amount: '0.050000' },
-          protocols: [{ x402: {} }, { mpp: { method: '', intent: '', currency: '' } }],
+          protocols: [{ x402: {} }, { mpp: { method: 'tempo', intent: 'charge', currency: '0x20C000000000000000000000b9537d11c60E8b50' } }],
           'x-networks': ['eip155:4217', 'eip155:8453', 'solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp'],
         },
         requestBody: {
@@ -380,9 +394,24 @@ const spec = {
         description: 'Server-Sent Events stream of an employee\'s real-time accruing salary balance, ticking every second.',
         operationId: 'streamEmployeeBalance',
         tags: ['Employee'],
+        requestBody: {
+          required: false,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                description: 'No body. Use `employeeId` query parameter to identify the employee.',
+                properties: {
+                  employeeId: { type: 'string', description: 'Employee UUID' },
+                },
+                required: ['employeeId'],
+              },
+            },
+          },
+        },
         'x-payment-info': {
           price: { mode: 'fixed', currency: 'USD', amount: '0.001000' },
-          protocols: [{ x402: {} }, { mpp: { method: '', intent: '', currency: '' } }],
+          protocols: [{ x402: {} }, { mpp: { method: 'tempo', intent: 'charge', currency: '0x20C000000000000000000000b9537d11c60E8b50' } }],
           'x-networks': ['eip155:4217'],
         },
         parameters: [
@@ -440,9 +469,25 @@ const spec = {
         description: 'Retrieves the payslip for an employee in a specific payroll run.',
         operationId: 'getPayslip',
         tags: ['Payroll'],
+        requestBody: {
+          required: false,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                description: 'No body. `runId` and `employeeId` come from the URL path.',
+                properties: {
+                  runId: { type: 'string', description: 'Payroll run UUID (path)' },
+                  employeeId: { type: 'string', description: 'Employee UUID (path)' },
+                },
+                required: ['runId', 'employeeId'],
+              },
+            },
+          },
+        },
         'x-payment-info': {
           price: { mode: 'fixed', currency: 'USD', amount: '0.020000' },
-          protocols: [{ x402: {} }, { mpp: { method: '', intent: '', currency: '' } }],
+          protocols: [{ x402: {} }, { mpp: { method: 'tempo', intent: 'charge', currency: '0x20C000000000000000000000b9537d11c60E8b50' } }],
           'x-networks': ['eip155:4217'],
         },
         parameters: [
@@ -509,7 +554,7 @@ const spec = {
         tags: ['Agent'],
         'x-payment-info': {
           price: { mode: 'fixed', currency: 'USD', amount: '0.010000' },
-          protocols: [{ x402: {} }, { mpp: { method: '', intent: '', currency: '' } }],
+          protocols: [{ x402: {} }, { mpp: { method: 'tempo', intent: 'charge', currency: '0x20C000000000000000000000b9537d11c60E8b50' } }],
           'x-networks': ['eip155:4217', 'eip155:8453', 'solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp'],
         },
         requestBody: {
@@ -564,9 +609,25 @@ const spec = {
         description: 'Returns paginated payment history for an employee.',
         operationId: 'getEmployeeHistory',
         tags: ['Employee'],
+        requestBody: {
+          required: false,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                description: 'No body. `id` comes from the URL path; `limit` is an optional query parameter.',
+                properties: {
+                  id: { type: 'string', description: 'Employee UUID (path)' },
+                  limit: { type: 'integer', description: 'Optional page size (max 100)', minimum: 1, maximum: 100 },
+                },
+                required: ['id'],
+              },
+            },
+          },
+        },
         'x-payment-info': {
           price: { mode: 'fixed', currency: 'USD', amount: '0.050000' },
-          protocols: [{ x402: {} }, { mpp: { method: '', intent: '', currency: '' } }],
+          protocols: [{ x402: {} }, { mpp: { method: 'tempo', intent: 'charge', currency: '0x20C000000000000000000000b9537d11c60E8b50' } }],
           'x-networks': ['eip155:4217'],
         },
         parameters: [
@@ -634,7 +695,7 @@ const spec = {
         tags: ['Bridge'],
         'x-payment-info': {
           price: { mode: 'fixed', currency: 'USD', amount: '0.250000' },
-          protocols: [{ x402: {} }, { mpp: { method: '', intent: '', currency: '' } }],
+          protocols: [{ x402: {} }, { mpp: { method: 'tempo', intent: 'charge', currency: '0x20C000000000000000000000b9537d11c60E8b50' } }],
           'x-networks': ['eip155:4217'],
         },
         requestBody: {
@@ -698,7 +759,7 @@ const spec = {
         tags: ['Treasury'],
         'x-payment-info': {
           price: { mode: 'fixed', currency: 'USD', amount: '0.100000' },
-          protocols: [{ x402: {} }, { mpp: { method: '', intent: '', currency: '' } }],
+          protocols: [{ x402: {} }, { mpp: { method: 'tempo', intent: 'charge', currency: '0x20C000000000000000000000b9537d11c60E8b50' } }],
           'x-networks': ['eip155:4217'],
         },
         requestBody: {
@@ -778,9 +839,25 @@ const spec = {
         description: 'Returns the list of compliance-cleared wallet addresses for an employer, suitable for marketplace use.',
         operationId: 'getComplianceList',
         tags: ['Compliance'],
+        requestBody: {
+          required: false,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                description: 'No body. `employerId` comes from the URL path; `limit` is an optional query parameter.',
+                properties: {
+                  employerId: { type: 'string', description: 'Employer UUID (path)' },
+                  limit: { type: 'integer', description: 'Optional page size (max 500)', minimum: 1, maximum: 500 },
+                },
+                required: ['employerId'],
+              },
+            },
+          },
+        },
         'x-payment-info': {
           price: { mode: 'fixed', currency: 'USD', amount: '0.500000' },
-          protocols: [{ x402: {} }, { mpp: { method: '', intent: '', currency: '' } }],
+          protocols: [{ x402: {} }, { mpp: { method: 'tempo', intent: 'charge', currency: '0x20C000000000000000000000b9537d11c60E8b50' } }],
           'x-networks': ['eip155:4217'],
         },
         parameters: [
@@ -856,7 +933,7 @@ const spec = {
         ],
         'x-payment-info': {
           price: { mode: 'fixed', currency: 'USD', amount: '0.100000' },
-          protocols: [{ x402: {} }, { mpp: { method: '', intent: '', currency: '' } }],
+          protocols: [{ x402: {} }, { mpp: { method: 'tempo', intent: 'charge', currency: '0x20C000000000000000000000b9537d11c60E8b50' } }],
           'x-networks': ['eip155:4217', 'eip155:8453', 'solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp'],
         },
         'x-guidance': 'Post an escrow that will be auto-validated by a Claude judge against your rubric_prompt. Approved verdicts release funds to worker_wallet_address via a permissionless Solana instruction; rejected verdicts or expiry refund to the employer. Funds custodied during the escrow period by the remlo_escrow Anchor program at 2CY3JQfkXpyTT8QBiHfKnashxGJ37ctDvqcgi7ggWiAA (Solana devnet). Settled escrows write a SAS reputation attestation (remlo-escrow-settled) to the worker subject; rejected or expired refunds write remlo-escrow-refunded to the requester. Both attestations are written asynchronously by /api/cron/process-reputation-writes. Expiry duration is reputation-scaled: unknown workers (no SAS attestations) receive the full requested duration; trusted workers with 20+ attestations receive a shorter expiry floor. Check the response applied_expiry_hours and worker_reputation_tier fields to see the duration actually used.',
@@ -925,7 +1002,7 @@ const spec = {
         ],
         'x-payment-info': {
           price: { mode: 'fixed', currency: 'USD', amount: '0.020000' },
-          protocols: [{ x402: {} }, { mpp: { method: '', intent: '', currency: '' } }],
+          protocols: [{ x402: {} }, { mpp: { method: 'tempo', intent: 'charge', currency: '0x20C000000000000000000000b9537d11c60E8b50' } }],
           'x-networks': ['eip155:4217', 'eip155:8453', 'solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp'],
         },
         'x-guidance': 'Submit a deliverable URI. Remlo fetches the content (10s timeout, 100KB max), computes SHA-256, records the hash on-chain, and invokes the Claude judge against the rubric. Settlement or refund broadcasts automatically within ~30s of validator decision. The caller polls /api/mpp/escrow/{id}/status to observe the final state.',
@@ -970,7 +1047,7 @@ const spec = {
         ],
         'x-payment-info': {
           price: { mode: 'fixed', currency: 'USD', amount: '0.020000' },
-          protocols: [{ x402: {} }, { mpp: { method: '', intent: '', currency: '' } }],
+          protocols: [{ x402: {} }, { mpp: { method: 'tempo', intent: 'charge', currency: '0x20C000000000000000000000b9537d11c60E8b50' } }],
           'x-networks': ['eip155:4217'],
         },
         'x-guidance': 'Build a submit_deliverable instruction via lib/escrow-client.ts::buildSubmitDeliverableInstruction, wrap in a Transaction, sign client-side with the worker keypair, base64-encode the serialized tx, submit here. The uri_hash in the signed instruction must match sha256(deliverable_uri) exactly — the server verifies this before broadcasting. Fee payer on the signed tx MUST be the worker pubkey.',
@@ -1007,9 +1084,24 @@ const spec = {
         description: 'Public read access to any x402-paying caller. Returns public-facing fields only — no validator model, no internal hashes, no employer scope.',
         operationId: 'escrowStatus',
         tags: ['Agent'],
+        requestBody: {
+          required: false,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                description: 'No body. Escrow UUID comes from the URL path.',
+                properties: {
+                  id: { type: 'string', description: 'Escrow UUID (path)' },
+                },
+                required: ['id'],
+              },
+            },
+          },
+        },
         'x-payment-info': {
           price: { mode: 'fixed', currency: 'USD', amount: '0.010000' },
-          protocols: [{ x402: {} }, { mpp: { method: '', intent: '', currency: '' } }],
+          protocols: [{ x402: {} }, { mpp: { method: 'tempo', intent: 'charge', currency: '0x20C000000000000000000000b9537d11c60E8b50' } }],
           'x-networks': ['eip155:4217', 'eip155:8453', 'solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp'],
         },
         'x-guidance': 'Check escrow state and any on-chain signatures. No X-Agent-Identifier required — this is a public read path for any caller observing the escrow.',
@@ -1063,7 +1155,7 @@ const spec = {
         ],
         'x-payment-info': {
           price: { mode: 'fixed', currency: 'USD', amount: '0.050000' },
-          protocols: [{ x402: {} }, { mpp: { method: '', intent: '', currency: '' } }],
+          protocols: [{ x402: {} }, { mpp: { method: 'tempo', intent: 'charge', currency: '0x20C000000000000000000000b9537d11c60E8b50' } }],
           'x-networks': ['eip155:4217', 'eip155:8453', 'solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp'],
         },
         requestBody: {
@@ -1127,7 +1219,7 @@ const spec = {
         tags: ['Agent'],
         'x-payment-info': {
           price: { mode: 'fixed', currency: 'USD', amount: '0.020000' },
-          protocols: [{ x402: {} }, { mpp: { method: '', intent: '', currency: '' } }],
+          protocols: [{ x402: {} }, { mpp: { method: 'tempo', intent: 'charge', currency: '0x20C000000000000000000000b9537d11c60E8b50' } }],
           'x-networks': ['eip155:4217'],
         },
         requestBody: {
