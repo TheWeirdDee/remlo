@@ -1,4 +1,4 @@
-import { multiRailCharge } from '@/lib/x402-multi-rail'
+import { multiRailRoute } from '@/lib/mpp-route'
 import { decodeMemo } from '@/lib/memo'
 
 /**
@@ -8,20 +8,27 @@ import { decodeMemo } from '@/lib/memo'
  *
  * Body: { memo: string } — 0x-prefixed 32-byte hex
  */
-export const POST = multiRailCharge({
+export const POST = multiRailRoute({
   amount: '0.01',
   description: 'Decode payroll memo',
-})(async (req: Request) => {
-  const { memo } = await req.json() as { memo: string }
+  handler: async ({ req }) => {
+    const { memo } = (await req.json()) as { memo: string }
 
-  if (!memo || !memo.startsWith('0x') || memo.length !== 66) {
-    return Response.json({ error: 'Invalid memo: must be 0x-prefixed 32-byte hex (66 chars)' }, { status: 400 })
-  }
+    if (!memo || !memo.startsWith('0x') || memo.length !== 66) {
+      return Response.json(
+        { error: 'Invalid memo: must be 0x-prefixed 32-byte hex (66 chars)' },
+        { status: 400 },
+      )
+    }
 
-  const fields = decodeMemo(memo as `0x${string}`)
-  if (!fields) {
-    return Response.json({ error: 'Failed to decode memo: unrecognized format' }, { status: 422 })
-  }
+    const fields = decodeMemo(memo as `0x${string}`)
+    if (!fields) {
+      return Response.json(
+        { error: 'Failed to decode memo: unrecognized format' },
+        { status: 422 },
+      )
+    }
 
-  return Response.json({ memo, fields })
+    return Response.json({ memo, fields })
+  },
 })

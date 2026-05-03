@@ -1,4 +1,4 @@
-import { multiRailCharge } from '@/lib/x402-multi-rail'
+import { multiRailRoute } from '@/lib/mpp-route'
 import { tip403Registry } from '@/lib/contracts'
 import { insertComplianceEvent } from '@/lib/queries/compliance'
 
@@ -10,10 +10,10 @@ import { insertComplianceEvent } from '@/lib/queries/compliance'
  *
  * Body: { walletAddress: string, policyId?: number, employerId?: string }
  */
-export const POST = multiRailCharge({
+export const POST = multiRailRoute({
   amount: '0.05',
   description: 'Compliance screening',
-})(async (req: Request) => {
+  handler: async ({ req }) => {
   const body = await req.json() as {
     walletAddress: string
     policyId?: number
@@ -55,4 +55,5 @@ export const POST = multiRailCharge({
     result,
     checked_at: new Date().toISOString(),
   })
+  },
 })

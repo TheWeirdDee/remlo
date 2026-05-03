@@ -1,4 +1,4 @@
-import { mppx } from '@/lib/mpp'
+import { mppRoute } from '@/lib/mpp-route'
 import { treasury, yieldRouter } from '@/lib/contracts'
 import { getEmployerById } from '@/lib/queries/employers'
 import { getEmployerOnchainIdentity, getEmployerOnchainIdentityError } from '@/lib/employer-onchain'
@@ -20,7 +20,9 @@ interface OptimizeBody {
  * agent (X-Agent-Identifier + HMAC). Treasury financials are not public
  * (audit C-11).
  */
-export const POST = mppx.charge({ amount: '0.10' })(async (req: Request) => {
+export const POST = mppRoute({
+  amount: '0.10',
+  handler: async ({ req }) => {
   const rawBody = await req.text()
   let body: OptimizeBody
   try {
@@ -118,4 +120,5 @@ export const POST = mppx.charge({ amount: '0.10' })(async (req: Request) => {
     analyzedAt: new Date().toISOString(),
     caller: auth.caller.kind,
   })
+  },
 })

@@ -1,4 +1,4 @@
-import { mppx } from '@/lib/mpp'
+import { mppRoute } from '@/lib/mpp-route'
 import { streamVesting, getServerWalletClient } from '@/lib/contracts'
 import { createServerClient } from '@/lib/supabase-server'
 import { requireEmployerCaller } from '@/lib/mpp-auth'
@@ -23,7 +23,9 @@ interface AdvanceBody {
  *
  * Body: { employeeId: string }
  */
-export const POST = mppx.charge({ amount: '0.50' })(async (req: Request) => {
+export const POST = mppRoute({
+  amount: '0.50',
+  handler: async ({ req }) => {
   const rawBody = await req.text()
   let body: AdvanceBody
   try {
@@ -74,4 +76,5 @@ export const POST = mppx.charge({ amount: '0.50' })(async (req: Request) => {
     claimed_at: new Date().toISOString(),
     caller: auth.caller.kind,
   })
+  },
 })

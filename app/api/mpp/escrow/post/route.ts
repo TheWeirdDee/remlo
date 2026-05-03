@@ -1,4 +1,4 @@
-import { multiRailCharge } from '@/lib/x402-multi-rail'
+import { multiRailRoute } from '@/lib/mpp-route'
 import { postEscrow, publicEscrowView } from '@/lib/escrow'
 import { findActiveAuthorization } from '@/lib/queries/agent-authorizations'
 import { verifyAgentProof } from '@/lib/agent-proof'
@@ -23,10 +23,10 @@ interface PostEscrowBody {
  * Identifier without HMAC is rejected — leaked identifiers can no longer be
  * replayed by an attacker who paid $0.10.
  */
-export const POST = multiRailCharge({
+export const POST = multiRailRoute({
   amount: '0.10',
   description: 'Post escrow with auto-validation',
-})(async (req: Request) => {
+  handler: async ({ req }) => {
   const agentIdentifier = req.headers.get('x-agent-identifier')?.trim()
   if (!agentIdentifier) {
     return Response.json(
@@ -104,4 +104,5 @@ export const POST = multiRailCharge({
         : 400
     return Response.json({ error: msg }, { status })
   }
+  },
 })

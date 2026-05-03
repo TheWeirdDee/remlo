@@ -1,4 +1,4 @@
-import { mppx } from '@/lib/mpp'
+import { mppRoute } from '@/lib/mpp-route'
 import { treasury, yieldRouter, employeeRegistry, getServerWalletClient } from '@/lib/contracts'
 import { getEmployerById } from '@/lib/queries/employers'
 import { getEmployerOnchainIdentity, getEmployerOnchainIdentityError } from '@/lib/employer-onchain'
@@ -32,7 +32,9 @@ interface SessionBody {
  * could rebalance any employer's yield strategy or read private treasury
  * positions.
  */
-export const POST = mppx.charge({ amount: '0.02' })(async (req: Request) => {
+export const POST = mppRoute({
+  amount: '0.02',
+  handler: async ({ req }) => {
   const rawBody = await req.text()
   let body: SessionBody
   try {
@@ -150,4 +152,5 @@ export const POST = mppx.charge({ amount: '0.02' })(async (req: Request) => {
     default:
       return Response.json({ error: `Unknown action: ${action as string}` }, { status: 400 })
   }
+  },
 })

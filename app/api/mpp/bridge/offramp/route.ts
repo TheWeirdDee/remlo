@@ -1,4 +1,4 @@
-import { mppx } from '@/lib/mpp'
+import { mppRoute } from '@/lib/mpp-route'
 import { createOffRampTransfer } from '@/lib/bridge'
 import { createServerClient } from '@/lib/supabase-server'
 import { requireEmployerCaller } from '@/lib/mpp-auth'
@@ -23,7 +23,9 @@ interface OffRampBody {
  * that employer; offramp is rejected if the employee is from a different
  * employer.
  */
-export const POST = mppx.charge({ amount: '0.25' })(async (req: Request) => {
+export const POST = mppRoute({
+  amount: '0.25',
+  handler: async ({ req }) => {
   const rawBody = await req.text()
   let body: OffRampBody
   try {
@@ -81,4 +83,5 @@ export const POST = mppx.charge({ amount: '0.25' })(async (req: Request) => {
     created_at: transfer.created_at,
     caller: auth.caller.kind,
   })
+  },
 })

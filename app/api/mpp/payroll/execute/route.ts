@@ -1,4 +1,4 @@
-import { mppx } from '@/lib/mpp'
+import { mppRoute } from '@/lib/mpp-route'
 import { payrollBatcher, getServerWalletClient } from '@/lib/contracts'
 import { getPayrollRunById, getPaymentItemsByRunId } from '@/lib/queries/payroll'
 import { getEmployerById } from '@/lib/queries/employers'
@@ -23,7 +23,9 @@ interface ExecuteBody {
  * agent (X-Agent-Identifier + HMAC). Without this, anyone with $1 could
  * execute any pending payroll for any employer (audit C-2).
  */
-export const POST = mppx.charge({ amount: '1.00' })(async (req: Request) => {
+export const POST = mppRoute({
+  amount: '1.00',
+  handler: async ({ req }) => {
   const rawBody = await req.text()
   let body: ExecuteBody
   try {
@@ -119,4 +121,5 @@ export const POST = mppx.charge({ amount: '1.00' })(async (req: Request) => {
     employer_account_id: onchainIdentity.employerAccountId,
     caller: auth.caller.kind,
   })
+  },
 })

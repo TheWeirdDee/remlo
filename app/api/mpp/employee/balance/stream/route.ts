@@ -1,5 +1,4 @@
-import { NextRequest } from 'next/server'
-import { mppx } from '@/lib/mpp'
+import { mppSessionRoute } from '@/lib/mpp-route'
 import { streamVesting } from '@/lib/contracts'
 import { createServerClient } from '@/lib/supabase-server'
 import { getMppCallerEmployee, getMppCallerEmployer } from '@/lib/mpp-auth'
@@ -17,24 +16,28 @@ const openStreamsByEmployee = new Map<string, number>()
 
 /**
  * GET /api/mpp/employee/balance/stream
- * MPP-5 — $0.001 per tick (SSE session, manual mode)
+ * MPP-5 — $0.001 per tick (SSE session).
  *
  * SECURITY: caller must be the employee themselves or their employer (audit
  * C-11, H-5). A per-process concurrency cap prevents economic DoS via
  * unbounded parallel sessions.
  *
  * Query params: ?employeeId=emp_123
- * Legacy compatibility: ?address=0x... — now rejected because it has no
- * authorization anchor.
+ *
+ * IMPORTANT: every check below runs INSIDE the mppSessionRoute wrapper.
+ * Any early Response.json from outside the wrapper would break the 402
+ * discovery contract (unpaid probes must see the price challenge first).
  */
-export async function GET(req: NextRequest) {
-  const url = new URL(req.url)
-  const employeeId = url.searchParams.get('employeeId')
-  if (!employeeId) {
-    return Response.json({ error: 'employeeId is required' }, { status: 400 })
-  }
+export const GET = mppSessionRoute({
+  amount: '0.001',
+  unitType: 'second',
+  handler: async ({ req }) => {
+    const url = new URL(req.url)
+    const employeeId = url.searchParams.get('employeeId')
+    if (!employeeId) {
+      return Response.json({ error: 'employeeId is required' }, { status: 400 })
+    }
 
-  return mppx.session({ amount: '0.001', unitType: 'second' })(async () => {
     const [callerEmployee, callerEmployer] = await Promise.all([
       getMppCallerEmployee(req),
       getMppCallerEmployer(req),
@@ -55,7 +58,9 @@ export async function GET(req: NextRequest) {
 
     let authorized = false
     if (callerEmployee && callerEmployee.id === employee.id) authorized = true
-    if (!authorized && callerEmployer && callerEmployer.id === employee.employer_id) authorized = true
+    if (!authorized && callerEmployer && callerEmployer.id === employee.employer_id) {
+      authorized = true
+    }
     if (!authorized) {
       return Response.json({ error: 'Forbidden' }, { status: 403 })
     }
@@ -77,7 +82,7 @@ export async function GET(req: NextRequest) {
     const address = (employee.wallet_address as `0x${string}` | null) ?? null
     let baseBalance = BigInt(0)
     if (address?.startsWith('0x')) {
-      baseBalance = await streamVesting.read.getAccruedBalance([address]) as bigint
+      baseBalance = (await streamVesting.read.getAccruedBalance([address])) as bigint
     }
 
     const startTime = Date.now()
@@ -127,5 +132,5 @@ export async function GET(req: NextRequest) {
         Connection: 'keep-alive',
       },
     })
-  })(req)
-}
+  },
+})

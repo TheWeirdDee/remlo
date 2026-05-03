@@ -1,5 +1,4 @@
-import { NextRequest } from 'next/server'
-import { mppx } from '@/lib/mpp'
+import { multiRailRoute } from '@/lib/mpp-route'
 import { getPaymentItemsByEmployeeId } from '@/lib/queries/payroll'
 import { byteaMemoToHex, decodeMemo } from '@/lib/memo'
 import { getMppCallerEmployee, getMppCallerEmployer } from '@/lib/mpp-auth'
@@ -7,24 +6,22 @@ import { createServerClient } from '@/lib/supabase-server'
 
 /**
  * GET /api/mpp/employee/[id]/history
- * MPP-8 — $0.05 single charge
+ * MPP-8 — $0.05 single charge.
  *
  * SECURITY: payment history is scoped to the subject OR their employer.
  * Previously any MPP client could enumerate salary history for any employee
  * UUID (audit C-11).
  *
- * Query params: ?limit=50
+ * Query params: ?limit=50 (max 100)
  */
-export async function GET(
-  req: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  const { id } = await params
-  const url = new URL(req.url)
-  const limit = Math.min(100, parseInt(url.searchParams.get('limit') ?? '50', 10))
+export const GET = multiRailRoute<{ id: string }>({
+  amount: '0.05',
+  description: 'Employee payment history',
+  handler: async ({ req, params }) => {
+    const { id } = params
+    const url = new URL(req.url)
+    const limit = Math.min(100, parseInt(url.searchParams.get('limit') ?? '50', 10))
 
-  return mppx.charge({ amount: '0.05' })(async () => {
-    // Either the employee themselves or their employer may read this history.
     const [callerEmployee, callerEmployer] = await Promise.all([
       getMppCallerEmployee(req),
       getMppCallerEmployer(req),
@@ -52,7 +49,6 @@ export async function GET(
 
     const payments = items.map((item) => {
       const memoHex = byteaMemoToHex(item.memo_bytes)
-
       return {
         id: item.id,
         amount_usd: item.amount,
@@ -68,5 +64,5 @@ export async function GET(
       payments,
       count: payments.length,
     })
-  })(req)
-}
+  },
+})

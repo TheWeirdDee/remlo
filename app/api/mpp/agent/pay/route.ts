@@ -1,5 +1,5 @@
 import { parseUnits, keccak256, toBytes, isAddress } from 'viem'
-import { multiRailCharge } from '@/lib/x402-multi-rail'
+import { multiRailRoute } from '@/lib/mpp-route'
 import { payrollBatcher, treasury, getServerWalletClient } from '@/lib/contracts'
 import { getEmployerOnchainIdentity, getEmployerOnchainIdentityError } from '@/lib/employer-onchain'
 import { spentInLastDay, recordPayCall } from '@/lib/queries/agent-authorizations'
@@ -27,11 +27,11 @@ interface PayBody {
  * agent (X-Agent-Identifier + HMAC). Caps (per-tx, per-day) enforce only on
  * the agent path — Privy callers can spend up to the on-chain treasury balance.
  */
-export const POST = multiRailCharge({
+export const POST = multiRailRoute({
   amount: '0.05',
   description: 'Agent-to-agent payment',
-})(async (req: Request) => {
-  if (!AGENT_KEY) {
+  handler: async ({ req }) => {
+    if (!AGENT_KEY) {
     return Response.json(
       { error: 'REMLO_AGENT_PRIVATE_KEY not configured on server' },
       { status: 503 },
@@ -173,4 +173,5 @@ export const POST = multiRailCharge({
     memo,
     timestamp: new Date().toISOString(),
   })
+  },
 })

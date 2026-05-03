@@ -1,4 +1,4 @@
-import { mppx } from '@/lib/mpp'
+import { mppRoute } from '@/lib/mpp-route'
 import { deliverSignedTransaction, publicEscrowView } from '@/lib/escrow'
 
 /**
@@ -17,7 +17,9 @@ import { deliverSignedTransaction, publicEscrowView } from '@/lib/escrow'
  *      from the body — prevents signing one hash and claiming another.
  *   4. The X-Agent-Identifier header matches worker_agent_identifier.
  */
-export const POST = mppx.charge({ amount: '0.02' })(async (req: Request) => {
+export const POST = mppRoute({
+  amount: '0.02',
+  handler: async ({ req }) => {
   const agentIdentifier = req.headers.get('x-agent-identifier')?.trim()
   if (!agentIdentifier) {
     return Response.json(
@@ -70,4 +72,5 @@ export const POST = mppx.charge({ amount: '0.02' })(async (req: Request) => {
           : 400
     return Response.json({ error: msg }, { status })
   }
+  },
 })
