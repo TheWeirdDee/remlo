@@ -60,6 +60,51 @@ export class PrivyPolicyRejectedError extends Error {
   }
 }
 
+export class PrivyPolicyDriftError extends Error {
+  constructor(public readonly walletId: string, public readonly detail: string) {
+    super(`Privy wallet ${walletId} policy drift: ${detail}`)
+    this.name = 'PrivyPolicyDriftError'
+  }
+}
+
+type WalletPolicyInfo = { policyIds?: string[] | null }
+
+/**
+ * SECURITY (audit H-12): before delegating to Privy's signer, verify the
+ * wallet still has the expected policy attached. If a deploy drops or
+ * swaps the policy, we fail closed instead of blindly signing uncapped
+ * transactions. `expectedPolicyId` should be the PRIVY_*_POLICY_ID env
+ * captured when the wallet was provisioned.
+ */
+export async function assertPrivyPolicyAttached(
+  walletId: string,
+  expectedPolicyId: string | undefined,
+): Promise<void> {
+  if (!expectedPolicyId) return // no expected policy pinned — drift check disabled
+
+  const privy = getPrivyServerClient()
+  try {
+    // Cast because @privy-io/server-auth's WalletApi typing exposes getWallet
+    // as Promise<WalletApiWalletResponseType> but the precise shape isn't
+    // re-exported. We only need the policy_ids field.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const wallet = await (privy.walletApi as any).getWallet({ id: walletId }) as WalletPolicyInfo
+    const attached = wallet?.policyIds ?? []
+    if (!Array.isArray(attached) || !attached.includes(expectedPolicyId)) {
+      throw new PrivyPolicyDriftError(
+        walletId,
+        `expected policy ${expectedPolicyId} not attached; got [${attached.join(',')}]`,
+      )
+    }
+  } catch (err) {
+    if (err instanceof PrivyPolicyDriftError) throw err
+    // Fail closed on transient Privy API errors — we'd rather block a sign
+    // than sign without verification.
+    const detail = err instanceof Error ? err.message : 'unknown error'
+    throw new PrivyPolicyDriftError(walletId, `drift check failed: ${detail}`)
+  }
+}
+
 /**
  * Signs an unsigned Solana transaction via a Privy server wallet.
  * Returns the signed transaction. Throws PrivyPolicyRejectedError if the policy
@@ -69,6 +114,8 @@ export async function signSolanaTransaction(
   walletId: string,
   transaction: Transaction | VersionedTransaction,
 ): Promise<Transaction | VersionedTransaction> {
+  await assertPrivyPolicyAttached(walletId, process.env.PRIVY_SOLANA_POLICY_ID)
+
   const privy = getPrivyServerClient()
 
   try {
@@ -122,6 +169,8 @@ export async function signTempoTransaction(
   walletId: string,
   tx: TempoTransactionRequest,
 ): Promise<`0x${string}`> {
+  await assertPrivyPolicyAttached(walletId, process.env.PRIVY_TEMPO_POLICY_ID)
+
   const privy = getPrivyServerClient()
 
   const hex = (v: bigint | number): `0x${string}` =>

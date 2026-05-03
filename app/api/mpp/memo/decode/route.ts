@@ -1,14 +1,17 @@
-import { mppx } from '@/lib/mpp'
+import { multiRailCharge } from '@/lib/x402-multi-rail'
 import { decodeMemo } from '@/lib/memo'
 
 /**
  * POST /api/mpp/memo/decode
- * MPP-7 — $0.01 single charge
+ * Multi-rail $0.01 — accepts Tempo (mpp) or Base / Solana (x402).
  * Decodes a 32-byte ISO 20022 TIP-20 memo hex string.
  *
  * Body: { memo: string } — 0x-prefixed 32-byte hex
  */
-export const POST = mppx.charge({ amount: '0.01' })(async (req: Request) => {
+export const POST = multiRailCharge({
+  amount: '0.01',
+  description: 'Decode payroll memo',
+})(async (req: Request) => {
   const { memo } = await req.json() as { memo: string }
 
   if (!memo || !memo.startsWith('0x') || memo.length !== 66) {

@@ -19,6 +19,7 @@ import { createHash, randomBytes } from 'crypto'
 import { BN, BorshInstructionCoder } from '@coral-xyz/anchor'
 import { Connection, PublicKey, Transaction } from '@solana/web3.js'
 import { createServerClient } from '@/lib/supabase-server'
+import { createNotification } from '@/lib/notifications'
 import { findActiveAuthorization } from '@/lib/queries/agent-authorizations'
 import {
   getRemloAgentWallets,
@@ -496,8 +497,17 @@ export async function deliverSignedTransaction(params: {
   const connection = new Connection(SOLANA_RPC_URL, 'confirmed')
   const client = new EscrowClient(connection)
 
-  const submitIx = tx.instructions.find((ix) => ix.programId.equals(client.programId))
-  if (!submitIx) {
+  // SECURITY (audit H-3): the signed tx must contain EXACTLY one instruction,
+  // targeting our program. Otherwise a worker could bundle the real
+  // submit_deliverable alongside an attacker-chosen instruction and have the
+  // server broadcast both.
+  if (tx.instructions.length !== 1) {
+    throw new Error(
+      `Signed tx must contain exactly 1 instruction (got ${tx.instructions.length})`,
+    )
+  }
+  const submitIx = tx.instructions[0]
+  if (!submitIx.programId.equals(client.programId)) {
     throw new Error('Signed tx does not target the remlo_escrow program')
   }
 
@@ -529,6 +539,24 @@ export async function deliverSignedTransaction(params: {
   }
   if (!tx.recentBlockhash) {
     throw new Error('Signed tx is missing recentBlockhash')
+  }
+
+  // SECURITY (audit H-3): only the worker may sign. Any additional signer
+  // would imply a malicious instruction slipped alongside submit_deliverable.
+  const signers = new Set(tx.signatures.map((s) => s.publicKey.toBase58()))
+  if (signers.size !== 1 || !signers.has(workerPubkey.toBase58())) {
+    throw new Error('Signed tx must have exactly one signer: the escrow worker')
+  }
+
+  // SECURITY (audit H-3): re-derive the expected escrow PDA and verify the
+  // instruction references it. Blocks mint/PDA confusion where the worker
+  // signs a valid-looking submit_deliverable pointing at a different escrow.
+  if (escrow.escrow_pda) {
+    const escrowPda = new PublicKey(escrow.escrow_pda)
+    const referencesEscrow = submitIx.keys.some((k) => k.pubkey.equals(escrowPda))
+    if (!referencesEscrow) {
+      throw new Error('Signed instruction does not reference the expected escrow PDA')
+    }
   }
 
   const signature = await connection.sendRawTransaction(tx.serialize())
@@ -993,6 +1021,24 @@ export async function settleOrRefund(
     throw new Error(`Cannot settle/refund: verdict is ${verdict}`)
   }
 
+  // SECURITY (audit M-11): state-transition guard. If the escrow has
+  // already been settled or refunded, reject here rather than paying for
+  // a second Privy sign + on-chain broadcast that the program would
+  // reject. Also blocks the narrow race where two concurrent settle calls
+  // both pass the in-memory verdict check. The on-chain program rejects
+  // the second tx with InvalidStatus; this short-circuit saves the round-
+  // trip and signing cost.
+  if (
+    escrow.status === 'settled' ||
+    escrow.status === 'rejected_refunded' ||
+    escrow.status === 'expired_refunded'
+  ) {
+    throw new Error(`Escrow already in terminal state: ${escrow.status}`)
+  }
+  if (escrow.settlement_signature || escrow.refund_signature) {
+    throw new Error('Escrow already has a settlement or refund signature recorded')
+  }
+
   const { solanaWallet } = getRemloAgentWallets()
   if (!solanaWallet) throw new Error('Solana agent wallet not configured')
 
@@ -1040,6 +1086,34 @@ export async function settleOrRefund(
     .from('escrows')
     .update(statusUpdate)
     .eq('id', escrowId)
+
+  // Notify the employer dashboard (header bell) about the escrow outcome.
+  // Fire-and-forget: a notification failure must never roll back the on-chain
+  // settle/refund that just confirmed.
+  if (escrow.employer_id) {
+    const amountUsd = (Number(escrow.amount_base_units) / 1e6).toFixed(2)
+    if (verdict === 'approved') {
+      void createNotification({
+        employerId: escrow.employer_id,
+        kind: 'escrow_settled',
+        severity: 'success',
+        title: 'Escrow settled',
+        body: `$${amountUsd} released to worker. Validator confidence ${Math.round((escrow.validator_confidence ?? 0) * 100)}%.`,
+        link: `/dashboard/escrows/${escrowId}`,
+        metadata: { escrow_id: escrowId, signature, amount_base_units: escrow.amount_base_units },
+      })
+    } else {
+      void createNotification({
+        employerId: escrow.employer_id,
+        kind: 'escrow_refunded',
+        severity: 'warning',
+        title: 'Escrow refunded',
+        body: `$${amountUsd} returned to requester. Validator rejected the deliverable.`,
+        link: `/dashboard/escrows/${escrowId}`,
+        metadata: { escrow_id: escrowId, signature, reason: 'validator_rejected' },
+      })
+    }
+  }
 
   // ── Enqueue reputation writes (Ship 3) ──────────────────────────────
   // Non-blocking: failures are logged but never propagate. The
@@ -1163,6 +1237,19 @@ export async function refundExpiredEscrow(escrowId: string): Promise<string> {
     })
     .eq('id', escrowId)
 
+  if (escrow.employer_id) {
+    const amountUsd = (Number(escrow.amount_base_units) / 1e6).toFixed(2)
+    void createNotification({
+      employerId: escrow.employer_id,
+      kind: 'escrow_refunded',
+      severity: 'warning',
+      title: 'Escrow expired and refunded',
+      body: `$${amountUsd} returned to requester. Worker did not deliver before expiry.`,
+      link: `/dashboard/escrows/${escrowId}`,
+      metadata: { escrow_id: escrowId, signature, reason: 'expired' },
+    })
+  }
+
   // ── Enqueue expired-refund reputation write (Ship 3) ─────────────────
   void (async () => {
     try {
@@ -1239,8 +1326,14 @@ export async function processExpiredEscrows(): Promise<{
 }
 
 /**
- * Public-facing subset of the row — omits validator_model, internal hashes,
- * and agent identifiers. Safe to return to any x402 caller via /status.
+ * Public-facing subset of the row.
+ *
+ * SECURITY (audit H-8): `rubric_prompt` and `validator_reasoning` are the
+ * internal acceptance criteria + validator chain-of-thought. Previously both
+ * were returned publicly, letting adversarial workers learn how to auto-pass
+ * the rubric and extract the validator system prompt. Now omitted from the
+ * public view. The escrow owner / authorized participants get the full view
+ * via authenticated endpoints (see `escrowViewForParticipant`).
  */
 export function publicEscrowView(row: EscrowRow): Record<string, unknown> {
   const amount_usdc = (Number(row.amount_base_units) / 10 ** USDC_DECIMALS).toFixed(USDC_DECIMALS)
@@ -1254,11 +1347,10 @@ export function publicEscrowView(row: EscrowRow): Record<string, unknown> {
     currency: row.currency,
     chain: row.chain,
     worker_wallet_address: row.worker_wallet_address,
-    rubric_prompt: row.rubric_prompt,
+    // rubric_prompt, validator_reasoning intentionally omitted.
     deliverable_uri: row.deliverable_uri,
     validator_verdict: row.validator_verdict,
     validator_confidence: row.validator_confidence,
-    validator_reasoning: row.validator_reasoning,
     expires_at: row.expires_at,
     requested_expiry_hours: row.requested_expiry_hours,
     applied_expiry_hours: row.applied_expiry_hours,
@@ -1280,5 +1372,18 @@ export function publicEscrowView(row: EscrowRow): Record<string, unknown> {
       settlement: explorer(row.settlement_signature),
       refund: explorer(row.refund_signature),
     },
+  }
+}
+
+/**
+ * Full escrow view for an authenticated participant (escrow's employer, the
+ * worker agent that posted, or a platform admin). Includes rubric_prompt +
+ * validator_reasoning which are stripped from publicEscrowView.
+ */
+export function escrowViewForParticipant(row: EscrowRow): Record<string, unknown> {
+  return {
+    ...publicEscrowView(row),
+    rubric_prompt: row.rubric_prompt,
+    validator_reasoning: row.validator_reasoning,
   }
 }

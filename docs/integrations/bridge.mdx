@@ -1,11 +1,57 @@
 ---
-title: "Bridge Integration"
-description: "Fiat on/off-ramping and card issuing."
+title: "Bridge"
+description: "KYC, virtual accounts, cards, and ACH off-ramps."
 ---
 
-Remlo partners directly with Bridge to handle all fiat-to-stablecoin conversion operations inside the platform.
+Bridge handles four flows on Remlo: employee KYC, fiat virtual accounts, card issuance, and ACH off-ramps. Bridge is the trust boundary for fiat regulation; Remlo never holds employee money in a custodial wallet.
 
-Once an employer passes KYB, Remlo spins up a dedicated Bridge virtual account directly coupled to the employer's `PayrollTreasury` address on the Tempo network.
-Funds sent via ACH or wire instantly mint as tokenized stablecoin pathUSD inside the treasury upon receipt.
+## KYC links (the canonical onboarding path)
 
-Employees interact with the Bridge ecosystem on the egress side. Once salary is streamed or batched into their Tempo wallets, they can order and attach a virtual Bridge Visa card directly funded by their decentralized wallet balance or seamlessly trigger fiat off-ramping to a local bank account.
+When an employer invites an employee, Remlo creates a Bridge KYC link and sends it in the invite email. The employee clicks through, completes Bridge's hosted KYC form (ID upload, selfie, address verification), and is redirected back to Remlo. Bridge fires a `kyc_link.completed` webhook to `/api/webhooks/bridge`. Remlo updates the employee's `kyc_status` to `approved` (sandbox auto-approves; production runs real review).
+
+Implementation: `lib/employee-onboarding.ts:ensureEmployeeKycLink` calls `POST /v0/kyc_links` with `{ type: 'individual', full_name, email, redirect_uri }`. Bridge derives the customer record from the submitted KYC data; we don't pre-create a customer with `POST /v0/customers` because that endpoint requires `birth_date`, `signed_agreement_id`, `residential_address`, and `identifying_information` we don't have at invite time.
+
+The KYC link ID is stored on `employees.bridge_kyc_link_id`. When the webhook fires, we look up the employee by this ID, attach the freshly-minted `bridge_customer_id`, flip `kyc_status`, and trigger a notification to the employer dashboard.
+
+## Webhook signature verification
+
+Bridge signs webhooks with RSA-SHA256, not HMAC. The header format is:
+
+```
+X-Webhook-Signature: t=<ms_timestamp>,v0=<base64_signature>
+```
+
+The signed payload is `${timestamp}.${rawBody}`. Bridge supplies an RSA public key (PEM format) when the webhook endpoint is created in their dashboard; we verify with `crypto.createVerify('RSA-SHA256')` and reject events older than 10 minutes (replay protection per Bridge's spec).
+
+`BRIDGE_WEBHOOK_SECRET` carries this PEM public key. The variable name predates the algorithm change but the value is now a key, not a shared secret.
+
+## Sandbox vs production
+
+Bridge has two environments. Sandbox keys are prefixed `sk-test`; production keys are not. The base URL switches automatically based on `NODE_ENV`:
+
+- Production: `https://api.bridge.xyz/v0`
+- Anything else (development, preview): `https://api.sandbox.bridge.xyz/v0`
+
+In sandbox, customers auto-approve immediately. No real KYC review. Useful for end-to-end testing without waiting on humans. Payment-related webhooks (transfers, card transactions) don't fire in sandbox per Bridge's docs; only `kyc_link.*` and `customer.*` events do.
+
+To onboard for sandbox, email `support@bridge.xyz` requesting a developer account. They reply with credentials within 1-2 business days.
+
+## Virtual accounts
+
+After an employer's KYB completes, they can request a virtual ACH account via `POST /customers/{customerId}/virtual_accounts`. Funds wired to the virtual account credit the employer's Bridge wallet, which they can off-ramp to USDB on Tempo and forward into `PayrollTreasury`.
+
+The flow is operator-driven, not auto-credited to the Treasury. We don't lock employers into Bridge as the only on-ramp; some prefer to deposit pathUSD they already hold via the dashboard's on-chain widget.
+
+## Cards (Bridge × Stripe Issuing)
+
+Employees who want spending power without manually off-ramping can opt into a Bridge card. The card balance is funded from their Tempo or Solana wallet. Card transactions auto-settle by debiting the wallet at point of sale via Bridge's Stripe Issuing rail.
+
+Currently the Cards page in the dashboard surfaces the option; full activation, freeze, lost-card, and PIN flows are wired in code but gated on Bridge production approval (sandbox doesn't issue real test cards).
+
+## ACH off-ramps
+
+Employees who prefer salary in their local bank account use `POST /transfers` to wire stablecoin balance into ACH (US), SEPA (EEA), SPEI (Mexico), or PIX (Brazil) destinations. The transfer endpoint is exposed via `POST /api/mpp/bridge/offramp` for agent-driven flows; the employee portal also exposes it as a one-click action.
+
+## Operator setup
+
+Production cutover requires a separate prod API key and a separate webhook RSA key; both are issued by Bridge after manual review of your account.

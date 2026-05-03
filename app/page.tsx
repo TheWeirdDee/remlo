@@ -69,7 +69,7 @@ function HeroSection() {
           className="mb-8 inline-flex items-center gap-2 rounded-full border border-accent/30 bg-accent/5 px-3 py-1 text-xs font-medium text-accent"
         >
           <span aria-hidden="true">⚡</span>
-          Built on Tempo × Stripe Bridge
+          Settles on Tempo, Solana, and Base
         </motion.a>
 
         <motion.h1
@@ -89,7 +89,7 @@ function HeroSection() {
           transition={{ duration: 0.45, delay: 0.15 }}
           className="mx-auto mb-10 max-w-3xl text-lg leading-relaxed text-white/55 md:text-xl"
         >
-          The global payroll platform that moves money at the speed of blockchain — with the compliance of Stripe.
+          Companies pay teams in stablecoins on Tempo or Solana. Agents pay our APIs in USDC on three chains. Every settled payment writes portable on-chain reputation.
         </motion.p>
 
         <motion.div
@@ -262,7 +262,7 @@ function ProblemSection() {
 const FEATURE_BLOCKS = [
   {
     title: 'Instant Settlement',
-    body: 'Payroll runs confirm in under 0.5 seconds on Tempo, with PayrollBatcher packaging an entire team payout into one atomic TempoTransaction.',
+    body: 'Payroll runs confirm in under 0.5 seconds on Tempo. Solana payroll lands in 1 to 2 seconds via SPL transfers and Streamflow streams. PayrollBatcher packages an entire team payout into one atomic transaction.',
   },
   {
     title: 'Gasless for Everyone',
@@ -270,11 +270,11 @@ const FEATURE_BLOCKS = [
   },
   {
     title: 'Compliance Built In',
-    body: 'Every payment is screened against OFAC sanctions lists at the protocol level, with memo metadata and policy checks attached to the payroll flow instead of bolted on after the fact.',
+    body: 'Every payment is screened against OFAC sanctions lists at the protocol level, with ISO 20022 memo metadata and policy checks attached to the payroll flow instead of bolted on after the fact.',
   },
   {
     title: 'Your Treasury Earns Yield',
-    body: 'Idle payroll funds can be routed through YieldRouter into treasury-backed strategies. Keep the yield, share it with employees, or use it to offset payroll operations.',
+    body: 'Idle payroll funds can be routed through YieldRouter into approved strategies. Keep the yield, share it with employees, or use it to offset payroll operations.',
   },
 ]
 
@@ -402,7 +402,7 @@ const STEPS = [
     n: '01',
     icon: Building2,
     title: 'Connect your company',
-    body: 'Register, verify your business, and link your bank account through Stripe.',
+    body: 'Register, verify your business, and pick a settlement chain. Tempo for fast batched payroll, Solana for SPL streams, or both.',
   },
   {
     n: '02',
@@ -479,6 +479,127 @@ function HowItWorksSection() {
           >
             Start your free trial →
           </Link>
+        </FadeInUp>
+      </div>
+    </section>
+  )
+}
+
+function ForAgentsSection() {
+  const rails = [
+    { chain: 'Tempo', currency: 'USDC.e', protocol: 'mpp', note: 'Native to the Tempo settlement layer.' },
+    { chain: 'Base', currency: 'USDC', protocol: 'x402', note: 'Coinbase facilitator. Largest agent ecosystem.' },
+    { chain: 'Solana', currency: 'USDC', protocol: 'x402', note: 'Solana facilitator. Fastest finality.' },
+  ]
+
+  const primitives = [
+    {
+      title: 'Payroll',
+      body: 'Companies fund a treasury and run batched payouts in two clicks. Settles in under a second on Tempo, 1 to 2 seconds on Solana.',
+    },
+    {
+      title: 'Escrow',
+      body: 'Three party Solana coordination with LLM judged settlement. Funds custodied by the program. Permissionless settle and refund.',
+    },
+    {
+      title: 'Reputation',
+      body: 'Every settled payment writes ERC-8004 feedback on Tempo and SAS attestations on Solana. Queryable cross-chain and free to read.',
+    },
+  ]
+
+  return (
+    <section id="agents" className="border-t border-white/5 py-32">
+      <div className="mx-auto max-w-5xl px-6">
+        <FadeInUp>
+          <p className="mb-4 text-xs font-mono uppercase tracking-widest text-accent">FOR DEVELOPERS AND AGENTS</p>
+          <h2 className="mb-4 text-3xl font-bold tracking-tight text-white md:text-5xl">
+            Pay our APIs in USDC on any chain.
+          </h2>
+          <p className="mb-12 max-w-2xl text-lg text-white/50">
+            Most paid endpoints accept payment on three chains in parallel. AgentCash, raw <code className="rounded bg-white/5 px-1.5 py-0.5 font-mono text-sm text-accent">@x402/core</code>, Coinbase Agent Kit, or any HTTP client that implements 402 retry logic. One protocol, three rails.
+          </p>
+        </FadeInUp>
+
+        <FadeInUp delay={0.05}>
+          <div className="mb-16 grid gap-3 md:grid-cols-3">
+            {rails.map((rail) => (
+              <div key={rail.chain} className="rounded-2xl border border-white/5 bg-white/[0.02] p-5">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-lg font-bold text-white">{rail.chain}</h3>
+                  <span className="rounded-full border border-accent/20 bg-accent/5 px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-accent">
+                    {rail.protocol}
+                  </span>
+                </div>
+                <p className="mt-3 text-sm font-mono text-accent">{rail.currency}</p>
+                <p className="mt-3 text-sm leading-relaxed text-white/50">{rail.note}</p>
+              </div>
+            ))}
+          </div>
+        </FadeInUp>
+
+        <FadeInUp delay={0.1}>
+          <div className="mb-12 rounded-2xl border border-white/5 bg-[#0D152B] p-6">
+            <p className="text-xs font-mono uppercase tracking-widest text-white/40">EXAMPLE 402 RESPONSE</p>
+            <pre className="mt-4 overflow-x-auto text-xs leading-relaxed text-white/70">
+{`HTTP/1.1 402 Payment Required
+WWW-Authenticate: mpp realm="www.remlo.xyz", method="tempo",
+                      chainId="4217", currency="0x20C00000...",
+                      recipient="0xC9231...", amount="0.01"
+
+{
+  "x402Version": 2,
+  "accepts": [
+    { "scheme": "exact", "network": "eip155:8453",
+      "asset": "0x833589fCD6...", "amount": "10000",
+      "payTo": "0xC9231..." },
+    { "scheme": "exact", "network": "solana:5eykt4...",
+      "asset": "EPjFWdd5...", "amount": "10000",
+      "payTo": "BxoTaz3..." }
+  ]
+}`}
+            </pre>
+          </div>
+        </FadeInUp>
+
+        <FadeInUp delay={0.15}>
+          <div className="mb-8">
+            <p className="mb-4 text-xs font-mono uppercase tracking-widest text-accent">THREE PRIMITIVES</p>
+            <h3 className="mb-3 text-2xl font-bold text-white md:text-3xl">
+              One stack. Three on-chain primitives.
+            </h3>
+          </div>
+        </FadeInUp>
+
+        <div className="grid gap-3 md:grid-cols-3">
+          {primitives.map((p, i) => (
+            <FadeInUp key={p.title} delay={0.18 + i * 0.05}>
+              <div className="h-full rounded-2xl border border-white/5 bg-white/[0.02] p-6">
+                <h4 className="text-lg font-bold text-white">{p.title}</h4>
+                <p className="mt-3 text-sm leading-relaxed text-white/50">{p.body}</p>
+              </div>
+            </FadeInUp>
+          ))}
+        </div>
+
+        <FadeInUp delay={0.35}>
+          <div className="mt-10 flex flex-wrap items-center gap-3">
+            <a
+              href="https://docs.remlo.xyz/docs/mpp-api/overview"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex h-11 items-center justify-center rounded-xl border border-accent/30 bg-accent/5 px-5 text-sm font-semibold text-accent transition-colors hover:bg-accent/10"
+            >
+              Browse the API
+            </a>
+            <a
+              href="https://www.remlo.xyz/openapi.json"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex h-11 items-center justify-center rounded-xl border border-white/10 px-5 text-sm font-medium text-white transition-colors hover:bg-white/5"
+            >
+              OpenAPI spec →
+            </a>
+          </div>
         </FadeInUp>
       </div>
     </section>
@@ -811,6 +932,7 @@ export default function LandingPage() {
       <ProblemSection />
       <SolutionSection />
       <HowItWorksSection />
+      <ForAgentsSection />
       <ComparisonSection />
       <TestimonialsSection />
       <PricingSection />

@@ -1,5 +1,5 @@
 import { parseUnits, keccak256, toBytes, isAddress } from 'viem'
-import { mppx } from '@/lib/mpp'
+import { multiRailCharge } from '@/lib/x402-multi-rail'
 import { payrollBatcher, treasury, getServerWalletClient } from '@/lib/contracts'
 import { getEmployerById } from '@/lib/queries/employers'
 import { getEmployerOnchainIdentity, getEmployerOnchainIdentityError } from '@/lib/employer-onchain'
@@ -9,6 +9,7 @@ import {
   spentInLastDay,
   recordPayCall,
 } from '@/lib/queries/agent-authorizations'
+import { verifyAgentProof } from '@/lib/agent-proof'
 
 const AGENT_KEY = process.env.REMLO_AGENT_PRIVATE_KEY as `0x${string}` | undefined
 
@@ -32,7 +33,10 @@ const AGENT_KEY = process.env.REMLO_AGENT_PRIVATE_KEY as `0x${string}` | undefin
  * Body: { employer_id, recipient_wallet, amount, reference? }
  * Header: X-Agent-Identifier — the pre-registered agent identity (0x..., URI, or token)
  */
-export const POST = mppx.charge({ amount: '0.05' })(async (req: Request) => {
+export const POST = multiRailCharge({
+  amount: '0.05',
+  description: 'Agent-to-agent payment',
+})(async (req: Request) => {
   if (!AGENT_KEY) {
     return Response.json(
       { error: 'REMLO_AGENT_PRIVATE_KEY not configured on server' },
@@ -51,11 +55,19 @@ export const POST = mppx.charge({ amount: '0.05' })(async (req: Request) => {
     )
   }
 
-  const body = (await req.json()) as {
+  // Read body as raw text first so we can HMAC over the exact bytes the
+  // client signed. Parse after proof verification.
+  const rawBody = await req.text()
+  let body: {
     employer_id?: string
     recipient_wallet?: string
     amount?: string
     reference?: string
+  }
+  try {
+    body = JSON.parse(rawBody)
+  } catch {
+    return Response.json({ error: 'Invalid JSON' }, { status: 400 })
   }
 
   const { employer_id: employerId, recipient_wallet: recipient, amount, reference } = body
@@ -86,6 +98,18 @@ export const POST = mppx.charge({ amount: '0.05' })(async (req: Request) => {
       },
       { status: 403 },
     )
+  }
+
+  // Proof-of-possession: the agent must HMAC (timestamp + rawBody) with its
+  // signing_secret. Blocks impersonation when the X-Agent-Identifier leaks.
+  const proof = verifyAgentProof({
+    rawBody,
+    timestampHeader: req.headers.get('x-agent-timestamp'),
+    signatureHeader: req.headers.get('x-agent-signature'),
+    signingSecret: (authorization as { signing_secret?: string | null }).signing_secret ?? null,
+  })
+  if (!proof.ok) {
+    return Response.json({ error: proof.error, code: proof.code }, { status: proof.status })
   }
 
   // Per-transaction cap

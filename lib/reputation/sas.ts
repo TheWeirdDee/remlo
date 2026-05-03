@@ -461,7 +461,12 @@ async function aggregateSolanaReputationUncached(
 
   const totalAmountBaseUnits = payments.reduce((sum, r) => {
     const v = (r.payload as { amount_base_units?: string }).amount_base_units
-    return v ? sum + BigInt(v) : sum
+    if (!v) return sum
+    try {
+      return sum + BigInt(v)
+    } catch {
+      return sum
+    }
   }, 0n)
 
   const confidences = settledEscrows

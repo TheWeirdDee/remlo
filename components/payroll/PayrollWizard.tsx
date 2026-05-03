@@ -5,6 +5,7 @@ import { usePrivy } from '@privy-io/react-auth'
 import Link from 'next/link'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Bot, Check } from 'lucide-react'
+import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { BatchProgress, type BatchStatus } from '@/components/payroll/BatchProgress'
 import { GasSponsored } from '@/components/wallet/GasSponsored'
@@ -411,8 +412,10 @@ export function PayrollWizard({ employees, employerId, onComplete }: PayrollWiza
       })
 
       if (!calldataRes.ok) {
-        const data = await calldataRes.json().catch(() => ({}))
-        throw new Error(data.error ?? 'Failed to prepare payroll')
+        const data = await calldataRes.json().catch(() => ({} as { error?: string }))
+        const message = data.error ?? `Failed to prepare payroll (HTTP ${calldataRes.status})`
+        console.error('[payroll] prepare failed', { status: calldataRes.status, body: data })
+        throw new Error(message)
       }
 
       const prepared = (await calldataRes.json()) as {
@@ -431,8 +434,10 @@ export function PayrollWizard({ employees, employerId, onComplete }: PayrollWiza
       )
 
       if (!executeRes.ok) {
-        const data = await executeRes.json().catch(() => ({}))
-        throw new Error(data.error ?? 'Failed to execute payroll on-chain.')
+        const data = await executeRes.json().catch(() => ({} as { error?: string }))
+        const message = data.error ?? `Failed to execute payroll on-chain (HTTP ${executeRes.status})`
+        console.error('[payroll] execute failed', { status: executeRes.status, body: data })
+        throw new Error(message)
       }
 
       const result = (await executeRes.json()) as { tx_hash: string }
@@ -441,9 +446,13 @@ export function PayrollWizard({ employees, employerId, onComplete }: PayrollWiza
 
       setTxHash(result.tx_hash)
       setBatchStatus('success')
+      toast.success('Payroll executed on-chain.')
     } catch (err) {
-      setExecError(err instanceof Error ? err.message : 'Execution failed')
+      const message = err instanceof Error ? err.message : 'Execution failed'
+      console.error('[payroll] wizard error', err)
+      setExecError(message)
       setBatchStatus('error')
+      toast.error(`Payroll failed: ${message}`)
     }
   }
 

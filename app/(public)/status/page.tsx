@@ -7,20 +7,32 @@ const SYSTEMS = [
   {
     label: 'Tempo settlement',
     status: 'Operational',
-    note: 'Payroll settlement, sponsored transactions, and onchain reads are flowing normally.',
+    note: 'Payroll batches, sponsored transactions, and on-chain reads on Tempo Moderato are flowing normally.',
     icon: Wallet,
+  },
+  {
+    label: 'Solana settlement',
+    status: 'Operational',
+    note: 'SPL transfers, Streamflow streams, and remlo_escrow program operations confirming on devnet.',
+    icon: Wallet,
+  },
+  {
+    label: 'x402 multi-rail',
+    status: 'Operational',
+    note: 'Tempo (mpp), Base (x402 via CDP), and Solana (x402 via CDP) payment rails accepting traffic. Facilitator round trips within nominal latency.',
+    icon: CheckCircle2,
+  },
+  {
+    label: 'Reputation writes',
+    status: 'Operational',
+    note: 'SAS attestations on Solana and ERC-8004 feedback on Tempo draining from the queue every 10 minutes via Vercel cron.',
+    icon: CheckCircle2,
   },
   {
     label: 'Bridge fiat rails',
     status: 'Operational',
-    note: 'Virtual accounts, KYC handoffs, card issuance, and off-ramp orchestration are available.',
+    note: 'KYC links, customer status webhooks, virtual accounts, and ACH off-ramp orchestration available in sandbox. Production rails available on demand.',
     icon: ShieldCheck,
-  },
-  {
-    label: 'MPP machine access',
-    status: 'Operational',
-    note: 'HTTP 402 challenges, session endpoints, and SSE balance streams are responding as expected.',
-    icon: CheckCircle2,
   },
 ]
 
@@ -35,7 +47,7 @@ export default function StatusPage() {
         </p>
       </section>
 
-      <section className="grid gap-5 lg:grid-cols-3">
+      <section className="grid gap-5 md:grid-cols-2 lg:grid-cols-3">
         {SYSTEMS.map((system) => (
           <article key={system.label} className="rounded-3xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-6">
             <div className="flex items-center justify-between gap-3">

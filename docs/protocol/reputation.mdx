@@ -1,0 +1,128 @@
+---
+title: "Reputation"
+description: "Cross-chain reputation credentials produced by settled work."
+---
+
+Every settled action on Remlo writes portable on-chain reputation. Two registries, two chains. Solana Attestation Service (SAS) on Solana, ERC-8004 on Tempo. The same protocol writes to both depending on which side of the action settled there.
+
+The point: a worker's settled escrows on Solana count toward their reputation tier on Tempo, and vice versa. The agent that called `/api/mpp/agent/pay` ten times successfully has a public on-chain track record that any other protocol can read without trusting Remlo's database.
+
+## What gets written
+
+| Action | Solana write | Tempo write |
+|---|---|---|
+| Settled SPL/Streamflow payment to an employee | `payment-completed` SAS attestation to the recipient | (none yet; Phase 2) |
+| Approved escrow settlement | `escrow-settled` SAS attestation to the worker | ERC-8004 `giveFeedback` to the validator with `+100` |
+| Rejected escrow refund | `escrow-refunded` SAS attestation to the requester | ERC-8004 `giveFeedback` to the validator with `-50` |
+| Expired escrow refund | `escrow-refunded` SAS attestation to the requester | (no validator action, no feedback) |
+| First successful payroll run by an employer | `employer-verified` SAS attestation to the employer | (none yet) |
+| Agent-to-agent payment via `/api/mpp/agent/pay` | (none yet) | ERC-8004 `giveFeedback` to the recipient agent with structured tags |
+
+Writes happen out of band via the `reputation_writes` queue. The execution path enqueues a row; a Vercel cron at `/api/cron/process-reputation-writes` drains the queue every 10 minutes. Failures retry up to 5 times before the row is marked `giving_up` and the employer is notified via the dashboard bell.
+
+## SAS schemas
+
+Four schemas live under our credential authority on Solana devnet (mainnet upgrade pending):
+
+| Schema | PDA | Subject |
+|---|---|---|
+| `remlo-payment-completed` | `E12tzLn2WiKPWjR5F7QwStj1Tc8xENJaUZHSfcgcwuBx` | Payment recipient (employee or agent) |
+| `remlo-escrow-settled` | `AoQDtFs92zXXr4XfTTKFibbfwEo8gb4GgF8fMN3sw6de` | Escrow worker on approved verdict |
+| `remlo-escrow-refunded` | `G2h3khf3mipYy8Qyy7ojBhA4bzX6vwN6kWDvEYHVTVcS` | Escrow requester on rejected or expired refund |
+| `remlo-employer-verified` | `8isEh5PALYLcz3QgoNff61kccBVoxQfZgDUtWW4u2KWk` | Employer on first successful payroll run |
+
+Authority: [`BxoTaz3cbrVafhA2chLWAPNzdV5JAvh1YTHJbgD79kn7`](https://explorer.solana.com/address/BxoTaz3cbrVafhA2chLWAPNzdV5JAvh1YTHJbgD79kn7?cluster=devnet). The same Privy server wallet that signs `post_verdict`. Policy gated to SAS schema instructions.
+
+Each attestation carries the subject's address, the source `escrow_pda` or `payment_id`, a timestamp, and a confidence/value field structured per schema. Off-chain consumers query by subject address and aggregate counts.
+
+## ERC-8004 feedback
+
+Both Remlo agents are registered in the public ERC-8004 IdentityRegistry on Tempo:
+
+- **Remlo payroll agent**, ID `0`, address `0x282c802DAd96ae0FFD83Dd49Bd2D7CE80f4F16a3`.
+- **Remlo validator agent**, ID `1`, address `0x282c802DAd96ae0FFD83Dd49Bd2D7CE80f4F16a3` (currently same address; future plan separates them).
+
+Every escrow settlement writes a feedback entry to the validator agent in `ReputationRegistry`. The schema:
+
+```solidity
+function giveFeedback(
+    uint256 targetAgentId,
+    int128 value,             // -100..100
+    uint8 valueDecimals,      // currently 0 for whole-number scale
+    bytes32 tag1,
+    bytes32 tag2,
+    string calldata endpoint,
+    string calldata feedbackUri,
+    bytes32 feedbackHashHex,
+    bytes32 escrowId,
+    bytes32 role,
+    bytes32 outcome
+) external;
+```
+
+Tags are short bytes32 codes (`escrow`, `settled`, `rejected`, `agent_pay`, `payroll`, etc.). `feedbackUri` points to the off-chain reasoning (a URL the recipient agent can fetch); `feedbackHashHex` is a deterministic SHA-256 of the canonical reasoning JSON so consumers can verify the URL hasn't been tampered with. `role` and `outcome` are bytes32-encoded enums (`requester` | `validator` | `worker` and `settled` | `rejected_refunded` | `expired_refunded`).
+
+The `int128` value lets aggregators normalize across feedback entries without parsing tags. A worker with 50 settled escrows accumulates a score of +5000 (50 × +100); one with 10 settled and 5 rejected lands at +750.
+
+## Reputation tiers (read path)
+
+The escrow flow reads a worker's reputation before posting a new escrow and tiers their wallet:
+
+```typescript
+// lib/reputation-tiers.ts
+function getTierForAttestationCount(count: number): {
+  tier: 'unverified' | 'bronze' | 'silver' | 'gold'
+  expiryFloorSeconds: number
+} {
+  if (count >= 20) return { tier: 'gold', expiryFloorSeconds: 86_400 }      // 24 hours
+  if (count >= 10) return { tier: 'silver', expiryFloorSeconds: 172_800 }   // 48 hours
+  if (count >= 3)  return { tier: 'bronze', expiryFloorSeconds: 432_000 }   // 5 days
+  return { tier: 'unverified', expiryFloorSeconds: 604_800 }                // 7 days
+}
+```
+
+A trusted gold tier worker gets escrows that auto refund 24 hours after expiry. An unverified worker has 7 days. The expiry floor is the minimum the requester can set; they can extend it, but not shorten below the floor for that worker's tier.
+
+This makes reputation economically meaningful: workers who build a track record can quote shorter turnaround times because their requesters trust the auto-refund deadline. New workers have a longer review window.
+
+## Querying reputation
+
+Free, no auth, anyone can read any subject:
+
+```bash
+curl https://www.remlo.xyz/api/reputation/<address>
+```
+
+Returns aggregated counts across both chains, with per schema breakdowns:
+
+```json
+{
+  "subject": "BxoTaz3cb...",
+  "solana": {
+    "payment_completed": 12,
+    "escrow_settled": 4,
+    "escrow_refunded": 1,
+    "employer_verified": 0,
+    "total": 17
+  },
+  "tempo": {
+    "feedback_count": 9,
+    "score_aggregate": 720,
+    "endpoints_seen": 3
+  },
+  "tier": "silver",
+  "expiry_floor_seconds": 172800
+}
+```
+
+The endpoint hits both chains in parallel, deduplicates the response shape, and caches for 30 seconds. For agents reading reputation as part of a payment decision, this is the canonical path.
+
+## What this enables
+
+A worker who has settled 50 escrows on Remlo over 6 months has a public on-chain record of 50 SAS attestations and ~50 ERC-8004 feedback entries to validator agents who saw their work. Any other protocol that wants to extend credit, accept escrow as collateral, or skip a deposit requirement can read those records directly. Remlo's database doesn't need to be trusted. The chains are the trust boundary.
+
+This composes outward. A protocol that integrates Remlo for payroll automatically inherits a reputation surface for every employee they pay. A protocol that runs its own escrows can write to the same SAS schemas (we'd happily share the schema definition) and get reputation portability without coordinating with us.
+
+## Validation Registry (Phase 2)
+
+ERC-8004 also defines a `ValidationRegistry` for `validationRequest` / `validationResponse` pairs. We have the registry deployed and the read path wired into the dashboard, but writes are deferred to Phase 2 pending a protocol decision: who originates the validation request (escrow requester / Remlo / a separate orchestrator)? The write path will land once we resolve that.

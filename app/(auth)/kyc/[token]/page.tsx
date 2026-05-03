@@ -13,7 +13,7 @@ async function getKycState(token: string) {
   const supabase = createServerClient()
   const { data: employee } = await supabase
     .from('employees')
-    .select('id, employer_id, email, first_name, last_name, bridge_customer_id, kyc_status, kyc_verified_at')
+    .select('id, employer_id, email, first_name, last_name, bridge_customer_id, bridge_kyc_link_id, kyc_status, kyc_verified_at')
     .eq('id', token)
     .single()
 

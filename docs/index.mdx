@@ -1,22 +1,54 @@
 ---
 title: "Introduction"
-description: "Welcome to Remlo: borderless enterprise payroll on Tempo L1."
+description: "Remlo is the payroll, agent payment, and reputation protocol for borderless work."
 ---
 
-Remlo is borderless enterprise payroll on Tempo L1. Employers fund a treasury, run compliant batch payouts, stream salary in real time, issue employee cards through Bridge, and expose the same workflows to software agents through MPP.
+Remlo is the payroll, agent payment, and reputation protocol for borderless work. Companies pay teams in stablecoins on Tempo or Solana. Agents pay our APIs in USDC on Tempo, Base, or Solana. Every settled payment writes portable on-chain reputation.
 
-## App Surfaces
+Three primitives, two settlement chains, one stack. Funds are custodied by the protocol, not by Remlo. Every settled action produces a credential another protocol can read.
 
-Remlo provides ready-to-use application surfaces for managing all aspects of the payroll lifecycle:
-- **Employer Dashboard**: A comprehensive UI for employers to fund their treasury, run batch payroll, manage team compliance, and monitor yield.
-- **Employee Portal**: A dedicated workspace for employees to track their salary, manage their connected wallets, and activate their Visa cards.
+## Three primitives
 
-## Protocol Layer
+### Payroll
 
-Under the hood, Remlo is powered by a set of robust smart contracts deployed on Tempo L1. This protocol layer ensures that all transactions are secure, compliant, and transparent. Every transfer is automatically screened against TIP-403 compliance policies, and payouts are executed efficiently using the Payroll Batcher and TIP-20 memos.
+Companies fund a treasury on-chain and run batched payouts in two clicks. Tempo settlement lands in under a second. Solana settlement uses SPL transfers and Streamflow streams. Every payment carries a 32-byte ISO 20022 memo so compliance pipelines index by `messageType`, `employerId`, `employeeId`, and `payPeriod` without parsing tx logs.
 
-Because the underlying layer is entirely on-chain, you can integrate Remlo's capabilities directly into your own applications or allow your AI agents to interact with the MPP endpoints natively.
+The same execution rail powers `/api/mpp/agent/pay`, our agent to agent payment endpoint. External agents pay $0.05 in USDC and Remlo broadcasts a single recipient transfer from the named employer's treasury, capped by the per transaction and per day spend limits the employer set in advance.
 
-## Next Steps
+### Escrow
 
-Ready to get started? Head over to the [Quickstart](/docs/quickstart) to see how you can run payroll or integrate Remlo's APIs today.
+A three party coordination primitive on Solana. The requester locks USDC in an escrow PDA with a rubric. The worker submits a deliverable URI. A validator posts a verdict on-chain. The Remlo Privy server wallet is policy gated to a single instruction (`post_verdict`); `settle`, `refund`, and `expired_refund` are permissionless. Even under a fully compromised server, funds remain claimable by the correct counterparty.
+
+Default validator: Claude. Configurable: human arbitrators or multi validator consensus over `simple_majority`, `unanimous`, or `weighted` rules.
+
+### Reputation
+
+Settled work writes portable on-chain reputation on both chains. On Solana, four Solana Attestation Service schemas (`payment-completed`, `escrow-settled`, `escrow-refunded`, `employer-verified`) attest to recipient counterparties. On Tempo, every agent pay or escrow settlement writes an ERC-8004 `giveFeedback` entry to the counterparty agent's identity, with `int128` value on a -100..100 scale and structured tags.
+
+Reputation is queryable. The escrow flow already uses SAS attestation counts to tier worker wallets and scale escrow expiry. Trusted workers (20+ prior attestations) earn shorter floors. Anyone can read any subject's reputation:
+
+```bash
+curl https://www.remlo.xyz/api/reputation/<address>
+```
+
+Free, no auth.
+
+## Application surfaces
+
+- **Employer dashboard.** Treasury, team management, payroll wizard, escrows, council, reputation, AI agent, cards, compliance.
+- **Employee portal.** Salary, wallet, card, off-ramp, payments, reputation.
+- **MPP and x402 API.** Pay per use endpoints accessible to autonomous agents on three chains. Discoverable via [OpenAPI spec](https://www.remlo.xyz/openapi.json) and AgentCash.
+
+## Why on-chain
+
+Traditional payroll APIs lock funds inside the provider. If the provider's keys leak, every customer's payroll is exposed. Remlo inverts this: customer funds live in their own treasury contract on Tempo (or their Solana wallet), and Remlo's agent key is policy bound to whitelisted operations. A compromised Remlo cannot steal funds. The protocol is the trust boundary.
+
+The same property makes Remlo programmable for agents. An autonomous agent can pay $0.05, supply a credential proving its principal, and receive a payroll receipt or trigger a payout subject to the employer's spending caps. The agent never touches the treasury directly. Remlo executes the policy on-chain.
+
+## Next steps
+
+Pick the path that fits.
+
+- **Run payroll.** Start at the [Quickstart](/docs/quickstart).
+- **Build an agent that calls Remlo.** Read [MPP API: Multi-Rail Payments](/docs/mpp-api/overview) and [AgentCash integration](/docs/integrations/agentcash).
+- **Understand the settlement layer.** Read [Architecture](/docs/architecture).

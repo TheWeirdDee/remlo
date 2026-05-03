@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { processExpiredEscrows } from '@/lib/escrow'
+import { authorizeCronRequest } from '@/lib/cron-auth'
 
 /**
  * POST /api/cron/process-expired-escrows
@@ -15,22 +16,8 @@ import { processExpiredEscrows } from '@/lib/escrow'
  * leaving the endpoint open.
  */
 export async function POST(req: NextRequest): Promise<NextResponse> {
-  const cronSecret = process.env.CRON_SECRET
-  if (!cronSecret) {
-    return NextResponse.json(
-      { error: 'CRON_SECRET not configured — endpoint disabled' },
-      { status: 501 },
-    )
-  }
-
-  const xCronHeader = req.headers.get('x-cron-secret')
-  const authHeader = req.headers.get('authorization')
-  const vercelAuthValid = authHeader === `Bearer ${cronSecret}`
-  const xCronValid = xCronHeader === cronSecret
-
-  if (!vercelAuthValid && !xCronValid) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
+  const unauthorized = authorizeCronRequest(req)
+  if (unauthorized) return unauthorized
 
   const result = await processExpiredEscrows()
   return NextResponse.json(result)

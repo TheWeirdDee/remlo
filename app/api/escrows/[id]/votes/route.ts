@@ -25,7 +25,7 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> },
 ): Promise<NextResponse> {
   const { id: escrowId } = await params
-  const claims = getPrivyClaims(req)
+  const claims = await getPrivyClaims(req)
   if (!claims) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const supabase = createServerClient()

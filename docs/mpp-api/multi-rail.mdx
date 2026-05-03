@@ -1,0 +1,183 @@
+---
+title: "Multi-Rail Payments"
+description: "How agents pay our endpoints in USDC on Tempo, Base, or Solana."
+---
+
+Most paid endpoints accept payment on three chains in parallel. The 402 challenge surfaces every option in one response. AgentCash, raw `@x402/core`, Coinbase Agent Kit, and any custom HTTP client read the same body and pick whichever rail their wallet has balance on.
+
+This page walks the full payment flow with code samples for the three most common client implementations.
+
+## The 402 response
+
+A request to a multi-rail endpoint without payment headers returns:
+
+```http
+HTTP/1.1 402 Payment Required
+WWW-Authenticate: mpp realm="www.remlo.xyz", method="tempo", chainId="4217",
+                      currency="0x20C00000...", recipient="0xC9231...",
+                      amount="0.01"
+Content-Type: application/json
+
+{
+  "x402Version": 2,
+  "resource": { "url": "https://www.remlo.xyz/api/mpp/treasury/yield-rates" },
+  "accepts": [
+    {
+      "scheme": "exact",
+      "network": "eip155:8453",
+      "asset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+      "amount": "10000",
+      "payTo": "0xC9231...",
+      "maxTimeoutSeconds": 60,
+      "extra": { "description": "Treasury yield rates" }
+    },
+    {
+      "scheme": "exact",
+      "network": "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
+      "asset": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+      "amount": "10000",
+      "payTo": "BxoTaz3...",
+      "maxTimeoutSeconds": 60,
+      "extra": { "description": "Treasury yield rates" }
+    }
+  ]
+}
+```
+
+`amount` is in atomic units. USDC has 6 decimals everywhere, so `10000` means $0.01. `payTo` is an EOA on each rail (mandatory: the same EVM key holds balance on every EVM chain we support; the Solana key is separate).
+
+## How clients pick a rail
+
+Order of selection (when no override is provided):
+
+1. Check which chains the wallet has balance on.
+2. Filter `accepts[]` to options matching those chains.
+3. Pick the first match (or the cheapest, if amounts differ across rails — they don't on Remlo today).
+
+Most clients also expose a manual override (`paymentNetwork: 'solana'` etc.) so the agent operator can force a chain regardless of balance.
+
+## Paying on Tempo (mpp protocol)
+
+The Tempo rail uses the mpp protocol, signaled by the `WWW-Authenticate: mpp` header. To pay:
+
+```ts
+import { Mppx, tempo } from 'mppx/client'
+
+const client = Mppx.create({
+  methods: [
+    tempo.charge({
+      currency: '0x20C000000000000000000000b9537d11c60E8b50', // USDC.e on Tempo
+      recipient: '0xC9231...', // from challenge
+    }),
+  ],
+})
+
+const credential = await client.tempo.charge.pay(walletAccount, '0.01')
+const response = await fetch(url, {
+  headers: { Authorization: `mpp ${credential}` },
+})
+```
+
+`mppx/client` handles the EIP-3009 `transferWithAuthorization` signature internally. The `credential` it returns is a base64-encoded signed authorization that Remlo verifies via mppx's embedded facilitator (no external service in the loop).
+
+If the wallet provided isn't a `viem` Account, `mppx/client` exposes lower-level helpers that take a sign function instead.
+
+## Paying on Base (x402 protocol, EVM scheme)
+
+```ts
+import { x402Client } from '@x402/core/client'
+import { ExactEvmScheme } from '@x402/evm'
+import { toClientEvmSigner } from '@x402/evm'
+import { privateKeyToAccount } from 'viem/accounts'
+
+const account = privateKeyToAccount(process.env.AGENT_KEY as `0x${string}`)
+const signer = toClientEvmSigner({ account, chain: base })
+
+const client = new x402Client(signer)
+client.registerScheme(new ExactEvmScheme())
+
+const response = await client.fetch('https://www.remlo.xyz/api/mpp/treasury/yield-rates')
+```
+
+`@x402/core` handles the 402 retry loop. It reads `accepts[]`, finds the Base option, signs an EIP-3009 `transferWithAuthorization` against the recipient, base64-encodes the v2 PaymentPayload, and retries with `X-PAYMENT: <base64>` set.
+
+## Paying on Solana (x402 protocol, SVM scheme)
+
+```ts
+import { x402Client } from '@x402/core/client'
+import { ExactSvmScheme } from '@x402/svm'
+import { toClientSvmSigner } from '@x402/svm'
+import { Keypair, Connection } from '@solana/web3.js'
+
+const keypair = Keypair.fromSecretKey(/* ... */)
+const connection = new Connection('https://api.mainnet-beta.solana.com')
+const signer = toClientSvmSigner({ keypair, connection })
+
+const client = new x402Client(signer)
+client.registerScheme(new ExactSvmScheme())
+
+const response = await client.fetch('https://www.remlo.xyz/api/mpp/treasury/yield-rates')
+```
+
+The SVM signer constructs an SPL token transfer to the recipient's USDC token account, signs it, and produces the v2 PaymentPayload. Same retry loop as the EVM path.
+
+## Paying via AgentCash
+
+Skip the protocol details entirely. AgentCash handles all three rails:
+
+```bash
+npx -y agentcash@latest fetch https://www.remlo.xyz/api/mpp/treasury/yield-rates
+```
+
+AgentCash detects which chain has balance, signs the right protocol's payload, and retries. To force a specific chain:
+
+```bash
+npx -y agentcash@latest fetch \
+  https://www.remlo.xyz/api/mpp/treasury/yield-rates \
+  --payment-network solana
+```
+
+This is the recommended path for most agents. AgentCash is built and operated by `agentcash.dev` independently of Remlo; we use them because they implement the open protocols correctly.
+
+## Server side: what Remlo verifies
+
+When the retry comes in, Remlo dispatches based on which header the agent supplied:
+
+```ts
+// lib/x402-multi-rail.ts (simplified)
+async (req: Request) => {
+  if (req.headers.get('Authorization')?.startsWith('mpp ')) {
+    // Tempo via mppx (mpp protocol)
+    return mppxTempoCharge(req)
+  }
+  if (req.headers.get('X-PAYMENT')) {
+    // Base or Solana via x402-core (x402 protocol)
+    const payload = decodeXPayment(req.headers.get('X-PAYMENT'))
+    if (payload.accepted.network === 'eip155:8453')           // → CDP facilitator, EVM
+    if (payload.accepted.network.startsWith('solana:'))       // → CDP facilitator, SVM
+    return cdpServerVerifyAndRun(payload)
+  }
+  return build402WithAllRails(req)
+}
+```
+
+For Tempo, mppx's embedded facilitator verifies the EIP-3009 signature, simulates the transfer, and broadcasts post-handler. For Base and Solana, the CDP facilitator handles signature verification and on-chain settlement.
+
+Settlement runs fire and forget after the handler returns. Handler latency is not extended by the on-chain confirmation step. If settlement fails, the response that already went out stands; the signed payment is on-chain regardless.
+
+## State mutating endpoints
+
+Two endpoints stay Tempo only:
+
+- `POST /api/mpp/payroll/execute` ($1.00). Writes to Tempo PayrollTreasury and PayrollBatcher.
+- `POST /api/mpp/bridge/offramp` ($0.25). Pulls from Tempo treasury, posts to Bridge.
+
+Charging in another currency for a Tempo state mutation creates a settlement asymmetry. If the on-chain action reverts after the agent paid in Solana USDC, refunding the Solana side requires a separate cross-chain operation we don't run. State mutating endpoints intentionally accept Tempo only so refund handling is in-protocol.
+
+Reads, queries, and stateless operations (yield rates, compliance check, memo decode, escrow lifecycle) accept all three rails because there's no state-mutation asymmetry to worry about.
+
+## Why this matters for agents
+
+A Coinbase Agent Kit agent holds USDC on Base. A SolPay-onboarded agent holds USDC on Solana. A Tempo-native agent holds USDC.e on Tempo. Without multi-rail acceptance, two of those three would have to bridge to Tempo before calling Remlo, paying a bridge fee and waiting for finality. With multi-rail, every agent calls us natively from whatever wallet they already have funded.
+
+The flip side: Remlo's revenue comes in on whichever chain the agent picked. Net settlement happens off-chain via standard treasury operations (we keep small inventories on each chain and rebalance occasionally). The agent never sees this. They get the response.

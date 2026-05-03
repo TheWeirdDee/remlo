@@ -1,5 +1,5 @@
 // Auto-generated from contracts/out/PayrollTreasury.sol/PayrollTreasury.json
-// Do not edit manually — regenerate with: forge build
+// Do not edit manually — regenerate with: pnpm tsx scripts/regenerate-abis.ts
 
 export const PayrollTreasuryABI = [
   {
@@ -192,6 +192,25 @@ export const PayrollTreasuryABI = [
   },
   {
     "type": "function",
+    "name": "getSweepableBalance",
+    "inputs": [
+      {
+        "name": "token",
+        "type": "address",
+        "internalType": "contract ITIP20"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "lockFunds",
     "inputs": [
       {
@@ -269,6 +288,42 @@ export const PayrollTreasuryABI = [
     ],
     "outputs": [],
     "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "sweepUnaccounted",
+    "inputs": [
+      {
+        "name": "token",
+        "type": "address",
+        "internalType": "contract ITIP20"
+      },
+      {
+        "name": "to",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "amount",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "totalAccountedPayToken",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
   },
   {
     "type": "function",
@@ -394,5 +449,89 @@ export const PayrollTreasuryABI = [
       }
     ],
     "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "UnaccountedSwept",
+    "inputs": [
+      {
+        "name": "token",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "to",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "amount",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "Unlocked",
+    "inputs": [
+      {
+        "name": "employerId",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "amount",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "error",
+    "name": "InsufficientBalance",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "InsufficientLocked",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "MemoEmployerMismatch",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "NotBatcher",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "NotOwner",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "WouldTouchAccountedFunds",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "ZeroAddress",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "ZeroAmount",
+    "inputs": []
   }
 ] as const

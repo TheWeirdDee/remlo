@@ -3,7 +3,17 @@
 import * as React from 'react'
 import { useWallets } from '@privy-io/react-auth'
 import { useQueryClient } from '@tanstack/react-query'
-import { createWalletClient, custom, parseUnits, formatUnits, encodeFunctionData } from 'viem'
+import {
+  createWalletClient,
+  custom,
+  parseUnits,
+  formatUnits,
+  encodeFunctionData,
+  encodePacked,
+  keccak256,
+  pad,
+  type Hex,
+} from 'viem'
 import { Loader2, ArrowRight, CheckCircle2, AlertCircle, Wallet } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { publicClient } from '@/lib/contracts'
@@ -103,10 +113,18 @@ export function OnChainDepositWidget({ employer }: Props) {
       await publicClient.waitForTransactionReceipt({ hash: approveHash })
 
       setStatus('depositing')
+      // PayrollTreasury v2 (M-1 audit fix) requires the deposit memo's
+      // first 8 bytes to match `bytes8(keccak256(msg.sender))` so off-chain
+      // accounting can't be confused. Pack the depositor's employerId
+      // prefix into bytes 0-7 and zero-pad bytes 8-31. Future iterations
+      // can encode pay-period / cost-center metadata into the trailing
+      // bytes without breaking the prefix check.
+      const employerIdHash = keccak256(encodePacked(['address'], [privyWallet.address as Hex]))
+      const memo = pad(employerIdHash.slice(0, 18) as Hex, { size: 32, dir: 'right' })
       const depositData = encodeFunctionData({
         abi: PayrollTreasuryABI,
         functionName: 'deposit',
-        args: [amountWei, '0x0000000000000000000000000000000000000000000000000000000000000000'],
+        args: [amountWei, memo],
       })
       const depositHash = await walletClient.sendTransaction({
         to: PAYROLL_TREASURY_ADDRESS,

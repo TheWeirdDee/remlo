@@ -162,10 +162,10 @@ export default function InvitePage() {
         {(step === 'welcome' || step === 'authenticating') && invite && (
           <>
             <h2 className="text-2xl font-bold text-[var(--text-primary)] tracking-tight mb-2">
-              You&apos;ve been invited to Remlo
+              Welcome to Remlo
             </h2>
             <p className="text-[var(--text-secondary)] text-sm mb-8">
-              Accept this invite to receive your salary onchain. Your embedded wallet will be created automatically — no crypto knowledge required.
+              Accept your invite to start getting paid. We&apos;ll set up your account in 30 seconds. No banking forms, no app downloads.
             </p>
 
             <div className="p-4 rounded-xl bg-[var(--bg-surface)] border border-[var(--border-default)] mb-6">
@@ -225,7 +225,7 @@ export default function InvitePage() {
             </button>
 
             <p className="mt-4 text-center text-xs text-[var(--text-muted)]">
-              A Tempo wallet will be created for you automatically.
+              Your secure account is created automatically.
             </p>
           </>
         )}

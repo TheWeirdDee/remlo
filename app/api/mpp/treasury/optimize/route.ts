@@ -2,6 +2,7 @@ import { mppx } from '@/lib/mpp'
 import { treasury, yieldRouter } from '@/lib/contracts'
 import { getEmployerById } from '@/lib/queries/employers'
 import { getEmployerOnchainIdentity, getEmployerOnchainIdentityError } from '@/lib/employer-onchain'
+import { getMppCallerEmployer } from '@/lib/mpp-auth'
 
 /**
  * POST /api/mpp/treasury/optimize
@@ -12,10 +13,21 @@ import { getEmployerOnchainIdentity, getEmployerOnchainIdentityError } from '@/l
  * Body: { employerId: string, question?: string }
  */
 export const POST = mppx.charge({ amount: '0.10' })(async (req: Request) => {
+  // SECURITY: treasury financials are not public. Require the caller to own
+  // the employer record they're querying (audit C-11).
+  const caller = await getMppCallerEmployer(req)
+  if (!caller) {
+    return Response.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
   const { employerId, question } = await req.json() as { employerId: string; question?: string }
 
   if (!employerId) {
     return Response.json({ error: 'employerId required' }, { status: 400 })
+  }
+
+  if (employerId !== caller.id) {
+    return Response.json({ error: 'Forbidden' }, { status: 403 })
   }
 
   const employer = await getEmployerById(employerId)

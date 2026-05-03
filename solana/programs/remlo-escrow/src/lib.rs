@@ -141,6 +141,12 @@ pub mod remlo_escrow {
             matches!(verdict, VerdictState::Approved | VerdictState::Rejected),
             EscrowError::InvalidVerdict
         );
+        // Audit M-4: an Approved verdict at confidence_bps == 0 is logically
+        // suspect. Require strictly positive confidence; allow Rejected at
+        // any confidence (a low-confidence reject is meaningful).
+        if matches!(verdict, VerdictState::Approved) {
+            require!(confidence_bps > 0, EscrowError::InvalidConfidence);
+        }
         require!(confidence_bps <= 10_000, EscrowError::InvalidConfidence);
         require!(
             ctx.accounts.validator_authority.key() == escrow.validator_authority,
@@ -355,10 +361,16 @@ pub struct Settle<'info> {
     #[account(mut)]
     pub payer: Signer<'info>,
 
+    // SECURITY (audit C-8): `has_one = mint` binds the supplied `mint`
+    // account to `escrow.mint`. Without this, an attacker could pass a
+    // different mint, derive an ATA with that mint + escrow authority, and
+    // feed the subsequent transfer CPI mismatched token metadata.
     #[account(
         mut,
         seeds = [ESCROW_SEED, escrow.requester.as_ref(), &escrow.nonce.to_le_bytes()],
         bump = escrow.bump,
+        has_one = mint @ EscrowError::InvalidMint,
+        has_one = worker @ EscrowError::InvalidWorker,
     )]
     pub escrow: Account<'info, Escrow>,
 
@@ -379,7 +391,7 @@ pub struct Settle<'info> {
     )]
     pub worker_ata: Account<'info, TokenAccount>,
 
-    /// CHECK: constrained in instruction logic — must equal escrow.worker
+    /// CHECK: bound to `escrow.worker` by the `has_one = worker` constraint above.
     pub worker: UncheckedAccount<'info>,
 
     pub token_program: Program<'info, Token>,
@@ -396,10 +408,13 @@ pub struct Refund<'info> {
     #[account(mut)]
     pub payer: Signer<'info>,
 
+    // SECURITY (audit C-8): same mint + requester pin as Settle.
     #[account(
         mut,
         seeds = [ESCROW_SEED, escrow.requester.as_ref(), &escrow.nonce.to_le_bytes()],
         bump = escrow.bump,
+        has_one = mint @ EscrowError::InvalidMint,
+        has_one = requester @ EscrowError::InvalidRequester,
     )]
     pub escrow: Account<'info, Escrow>,
 
@@ -420,7 +435,7 @@ pub struct Refund<'info> {
     )]
     pub requester_ata: Account<'info, TokenAccount>,
 
-    /// CHECK: constrained in instruction logic — must equal escrow.requester
+    /// CHECK: bound to `escrow.requester` by the `has_one = requester` constraint above.
     pub requester: UncheckedAccount<'info>,
 
     pub token_program: Program<'info, Token>,
@@ -553,6 +568,12 @@ pub enum EscrowError {
     WorkerMismatch,
     #[msg("Requester ATA owner does not match the requester recorded at initialize")]
     RequesterMismatch,
+    #[msg("Provided mint account does not match escrow.mint")]
+    InvalidMint,
+    #[msg("Provided worker account does not match escrow.worker")]
+    InvalidWorker,
+    #[msg("Provided requester account does not match escrow.requester")]
+    InvalidRequester,
     #[msg("Signer does not match the validator_authority recorded at initialize")]
     ValidatorMismatch,
     #[msg("Verdict must be Approved or Rejected (not Pending)")]

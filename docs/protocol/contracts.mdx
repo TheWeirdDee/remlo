@@ -1,18 +1,45 @@
 ---
 title: "Contracts"
-description: "Core smart contracts powering Remlo on the Tempo Moderato testnet."
+description: "Live deployments on Tempo Moderato and Solana devnet."
 ---
 
-Remlo's execution layer relies on a set of audited smart contracts deployed on the Tempo network. All operations, from holding employer funds to distributing payroll, are handled via these contracts.
+Remlo runs five Solidity contracts plus three ERC-8004 registries on Tempo Moderato (chainId `42431`), and one Anchor program plus four SAS schemas on Solana devnet.
 
-### Moderato Testnet Deployments
+## Tempo Moderato
 
 | Contract | Address | Purpose |
-|----------|---------|---------|
-| **PayrollTreasury** | `0xeFac4A0cC3D54903746e811f6cd45DD7F43A43a5` | Holds employer stablecoin balances and funds gas logic. All payroll runs pull from this vault. |
-| **PayrollBatcher** | `0x90657d3F18abaB8B1b105779601644dF7ce4ee65` | Executes parallel stablecoin transfers to multiple employee wallets in a single transaction. |
-| **EmployeeRegistry** | `0xe7DdA49d250e014769F5d2C840146626Bf153BC4` | Maps employee wallets to their employers and verifies TIP-403 compliance policies during registration. |
-| **StreamVesting** | `0x83ac4D8E7957F9DCD2e18F22EbD8b83c2BDD3021` | Manages real-time salary streaming, allowing employees to claim accrued balances before payday. |
-| **YieldRouter** | `0x78B0548c7bb5B51135BBC87382f131d85abf1061` | Optimizes idle treasury funds across DeFi protocols, generating yield for employers and employees. |
+|---|---|---|
+| **PayrollTreasury** | [`0xEC73B9762b13148C54De792d70a2DB48690fD1F7`](https://explore.moderato.tempo.xyz/address/0xEC73B9762b13148C54De792d70a2DB48690fD1F7) | Per employer stablecoin custody with memo indexed deposits and per employer accounting. The deposit memo's first 8 bytes must equal `bytes8(keccak256(employerAdminWallet))` so off-chain accounting can't be spoofed (audit fix M-1). |
+| **PayrollBatcher** | [`0xeEBa523F0AB45838F4e2c2872cEd0d5512bb4e88`](https://explore.moderato.tempo.xyz/address/0xeEBa523F0AB45838F4e2c2872cEd0d5512bb4e88) | Atomic multi employee distribution. Pulls the exact total from PayrollTreasury, distributes to N recipients in one transaction with per item ISO 20022 memos, and emits a `PaymentSent` event indexed by `employerId` and `runId`. |
+| **EmployeeRegistry** | [`0x2B8fC6eACBd89a7B01bB400cDd492ff0CE931a7e`](https://explore.moderato.tempo.xyz/address/0x2B8fC6eACBd89a7B01bB400cDd492ff0CE931a7e) | Maps employee wallets to employers, records TIP-403 policy bindings, and exposes `isEmployedBy(wallet, employerId)` for the optional H-4 batch validation path. |
+| **StreamVesting** | [`0xEEd5bab5A4A09fd59610513C95E106D285c87A2F`](https://explore.moderato.tempo.xyz/address/0xEEd5bab5A4A09fd59610513C95E106D285c87A2F) | Native Tempo streaming compensation. Employees claim accrued balance any time before payday. Cancel returns unclaimed funds; failed cancel time refunds queue under `unclaimedEmployerRefunds` for `claimEmployerRefund` (audit fix H-2). |
+| **YieldRouter** | [`0x718B2bBfC6434AcaD06416Ad6d51dC6B0A7e3d42`](https://explore.moderato.tempo.xyz/address/0x718B2bBfC6434AcaD06416Ad6d51dC6B0A7e3d42) | Routes idle treasury balance into approved yield strategies under an allow list (audit fix H-5). |
+| **ERC-8004 IdentityRegistry** | [`0x1279d568C096937f73E1624B160A42eD67f7a485`](https://explore.moderato.tempo.xyz/address/0x1279d568C096937f73E1624B160A42eD67f7a485) | UUPS upgradeable. Both Remlo agents (`payroll`, `validator`) registered. |
+| **ERC-8004 ReputationRegistry** | [`0x9f514D7ad37507630541a5557dF325EC0eDC4ad7`](https://explore.moderato.tempo.xyz/address/0x9f514D7ad37507630541a5557dF325EC0eDC4ad7) | Receives `giveFeedback` writes from settled work. `int128` value on a -100..100 scale, structured tags (`escrow`, `settled`, `rejected`, etc.). |
+| **ERC-8004 ValidationRegistry** | [`0x2eeC2CA27E8428c409516E9418bb7F6560553B78`](https://explore.moderato.tempo.xyz/address/0x2eeC2CA27E8428c409516E9418bb7F6560553B78) | Reads wired in the dashboard. Writes (`validationRequest`, `validationResponse`) deferred to Phase 2. |
 
-When interacting with the system programmatically, ensure you are referencing the correct contract addresses and the network is explicitly set to Tempo Moderato (Chain ID: `42431`).
+RPC: `https://rpc.moderato.tempo.xyz`. Stablecoin: USDC.e at `0x20C000000000000000000000b9537d11c60E8b50` (6 decimals).
+
+## Solana
+
+| Program | Address | Purpose |
+|---|---|---|
+| **`remlo_escrow`** (Anchor) | [`2CY3JQfkXpyTT8QBiHfKnashxGJ37ctDvqcgi7ggWiAA`](https://explorer.solana.com/address/2CY3JQfkXpyTT8QBiHfKnashxGJ37ctDvqcgi7ggWiAA?cluster=devnet) | Three party escrow with pluggable validator authority, atomic settlement, permissionless `settle` / `refund` / `expired_refund`, M-4 audit fix enforced (`require!(confidence_bps > 0)` on approved verdicts). |
+| **SAS Credential Authority** | [`BxoTaz3cbrVafhA2chLWAPNzdV5JAvh1YTHJbgD79kn7`](https://explorer.solana.com/address/BxoTaz3cbrVafhA2chLWAPNzdV5JAvh1YTHJbgD79kn7?cluster=devnet) | Owns the four reputation schemas. Same Privy server wallet that signs `post_verdict`. |
+
+### SAS schemas (devnet)
+
+| Schema | Address | Subject |
+|---|---|---|
+| `remlo-payment-completed` | `E12tzLn2WiKPWjR5F7QwStj1Tc8xENJaUZHSfcgcwuBx` | Payment recipient (employee or agent) |
+| `remlo-escrow-settled` | `AoQDtFs92zXXr4XfTTKFibbfwEo8gb4GgF8fMN3sw6de` | Escrow worker on approved verdict |
+| `remlo-escrow-refunded` | `G2h3khf3mipYy8Qyy7ojBhA4bzX6vwN6kWDvEYHVTVcS` | Escrow requester on rejected or expired refund |
+| `remlo-employer-verified` | `8isEh5PALYLcz3QgoNff61kccBVoxQfZgDUtWW4u2KWk` | Employer on first successful payroll run |
+
+Solana addresses resolve on `devnet`. Mainnet upgrade is a Phase 2 milestone gated on Anchor program audit completion.
+
+## Programmatic access
+
+When integrating, source addresses from `lib/constants.ts` (Tempo) and `lib/solana-constants.ts` (Solana) rather than hard coding. Both files read from environment variables that match production and self-hosted deployments alike. The published OpenAPI spec at `https://www.remlo.xyz/openapi.json` carries the same addresses for agent discovery.
+
+For local development against your own deployments, set the `NEXT_PUBLIC_PAYROLL_*` and `REMLO_ESCROW_PROGRAM_ID` environment variables in `.env.local` before booting the app. See [Environment Variables](/docs/operations/environment-variables) for the full list.

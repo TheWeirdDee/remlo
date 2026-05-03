@@ -7,28 +7,28 @@ export default function AboutPage() {
     <article className="prose prose-invert max-w-none">
       <h1 className="text-4xl font-bold text-[var(--text-primary)] mb-8 tracking-tight">About Remlo</h1>
       <p className="text-xl text-[var(--text-secondary)] mb-12 italic border-l-2 border-[var(--accent)] pl-6">
-        Our mission is to solve global payroll for the onchain era.
+        Borderless work needs borderless money. Remlo gives companies, employees, and autonomous agents the same payment substrate.
       </p>
 
       <div className="space-y-12">
         <section>
-          <h2 className="text-2xl font-semibold text-[var(--text-primary)] mb-4">The Problem</h2>
+          <h2 className="text-2xl font-semibold text-[var(--text-primary)] mb-4">The problem</h2>
           <p className="text-[var(--text-secondary)] leading-relaxed">
-            In an increasingly remote and AI-agent-centric world, traditional fiat-based payroll systems remain prohibitively expensive and excruciatingly slow. Cross-border wires take days to settle and lose significant value to intermediary bank fees.
+            Cross-border payroll is broken. Wires take three to five days, lose 6% to FX spreads, and cost $25 to $75 each in intermediary fees. The infrastructure assumes everyone you pay has a local bank account compatible with your local rails. That assumption fails the moment your team is genuinely global, and it fails completely when the entity you&apos;re paying is an autonomous agent rather than a human.
           </p>
         </section>
 
         <section>
-          <h2 className="text-2xl font-semibold text-[var(--text-primary)] mb-4">The Solution</h2>
+          <h2 className="text-2xl font-semibold text-[var(--text-primary)] mb-4">The solution</h2>
           <p className="text-[var(--text-secondary)] leading-relaxed">
-            Remlo leverages the Tempo network to provide a hyper-fast, low-cost settlement layer for the world's workforce. By automating compliance, identity verification, and tax treasury via AI agents, we enable businesses to scale their teams globally without the administrative overhead.
+            One stack, three primitives, two settlement chains. Companies pay teams in stablecoins on Tempo or Solana with sub-second finality. Agents pay our APIs in USDC on Tempo, Base, or Solana via the open x402 protocol. Every settled payment writes portable on-chain reputation that any other system can read. Funds are custodied by the protocol, not by Remlo. Compliance is on-chain rather than bolted on.
           </p>
         </section>
 
         <section>
-          <h2 className="text-2xl font-semibold text-[var(--text-primary)] mb-4">Our Vision</h2>
+          <h2 className="text-2xl font-semibold text-[var(--text-primary)] mb-4">Our vision</h2>
           <p className="text-[var(--text-secondary)] leading-relaxed">
-            We believe that every employee—human or agent—deserves a friction-less, instant, and transparent compensation experience. Remlo is building the infrastructure that will power the next generation of decentralized labor markets.
+            Every economic participant deserves money that moves at the speed of the work it represents. Whether a contractor in Lagos clears their first paycheck in seconds or an autonomous agent collects $0.05 for serving a compliance report, the rails should be the same. Remlo is the infrastructure for that future.
           </p>
         </section>
       </div>

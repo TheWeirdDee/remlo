@@ -1,10 +1,16 @@
 // Auto-generated from contracts/out/EmployeeRegistry.sol/EmployeeRegistry.json
-// Do not edit manually — regenerate with: forge build
+// Do not edit manually — regenerate with: pnpm tsx scripts/regenerate-abis.ts
 
 export const EmployeeRegistryABI = [
   {
     "type": "constructor",
-    "inputs": [],
+    "inputs": [
+      {
+        "name": "_tip403Registry",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
     "stateMutability": "nonpayable"
   },
   {
@@ -154,6 +160,11 @@ export const EmployeeRegistryABI = [
     "name": "getWallet",
     "inputs": [
       {
+        "name": "employerId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
         "name": "employeeIdHash",
         "type": "bytes32",
         "internalType": "bytes32"
@@ -164,6 +175,30 @@ export const EmployeeRegistryABI = [
         "name": "",
         "type": "address",
         "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "isEmployedBy",
+    "inputs": [
+      {
+        "name": "wallet",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "employerId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bool",
+        "internalType": "bool"
       }
     ],
     "stateMutability": "view"
@@ -298,5 +333,40 @@ export const EmployeeRegistryABI = [
       }
     ],
     "anonymous": false
+  },
+  {
+    "type": "error",
+    "name": "ComplianceCheckFailed",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "EmployerNotConfigured",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "NotAuthorized",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "NotEmployerAdmin",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "NotOwner",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "WalletAlreadyRegistered",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "WalletNotActive",
+    "inputs": []
   }
 ] as const

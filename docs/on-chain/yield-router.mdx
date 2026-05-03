@@ -1,32 +1,50 @@
 ---
 title: "Yield Router"
-description: "Automated treasury management for deploying idle capital to verified DeFi protocols."
+description: "Routes idle treasury balance into approved yield strategies."
 ---
 
-Leaving idle funds in a static checking account is a waste of corporate capital. Employers using Remlo generally deposit their payroll funds into the `PayrollTreasury` days or weeks before payday execution. The `YieldRouter` automatically deploys those idle stablecoin bounds into verified DeFi strategies to actively generate low-risk yield.
+`YieldRouter` lets employers earn yield on payroll capital that isn't actively distributing. It maintains an allow list of approved DeFi strategies, exposes per employer allocation knobs, and supports three distribution models for the yield itself.
 
-```mermaid
-graph TD
-    A[Idle Treasury Funds] -->|depositToYield| B(Yield Router)
-    B -->|Allocate 50%| C((Aave Protocol))
-    B -->|Allocate 50%| D((Compound Finance))
-    C -.->|Accrued Interest| B
-    D -.->|Accrued Interest| B
-    B -->|distributeYield| E{Yield Distribution Model}
-    E -->|Employer Keeps| F[Offset Platform Fees]
-    E -->|Employee Bonus| G[Direct Bonus Transfers]
+## Approved strategies (audit fix H-5)
+
+`approvedStrategies` is a mapping from strategy address to a boolean. Only strategies the contract owner has explicitly added (`addStrategy(addr)`) can receive deposits via `routeToYield`. Before this fix, the router accepted any strategy address, which meant a misconfigured employer could route funds to a malicious or buggy strategy.
+
+The owner can also remove a strategy (`removeStrategy(addr)`). Existing deposits in a removed strategy can still be unwound; new deposits are blocked.
+
+## Authorization (audit fixes C-2, C-5)
+
+`setYieldConfig` is `onlyEmployerAdmin(employerId)`. Only the configured admin for an employer can change that employer's yield preference (employer keeps yield, employee bonus, or split).
+
+`rebalance(employerId)` is also `onlyEmployerAdmin`. The agent or any third party caller cannot trigger a rebalance unless the employer's admin has signed the call. Before this fix, anyone could rebalance any employer's allocation.
+
+## Distribution models
+
+`yield_model` per employer is one of:
+
+- **`employer_keeps`** (default). Yield accrues to the employer's treasury balance and offsets payroll fees.
+- **`employee_bonus`**. Yield is forwarded to active employees on the next payroll run as a separate top up payment with `messageType = "ybnu"` (yield bonus).
+- **`split`**. A configurable `employee_split_bps` (basis points, 0-10000) determines what fraction of yield goes to employees. Remainder stays with employer.
+
+## `distributeYield` reverts (audit fix C-3)
+
+The naive `distributeYield()` function used to compute and transfer aggregated yield in one call. It's now a stub that reverts with `NotImplemented`. The actual distribution happens at payroll execution time via the `Batcher`'s yield-aware payment path. This eliminates a class of accounting bugs where `distributeYield` could double-count or miss accrued interest depending on call ordering.
+
+## Sweep unaccounted (audit fix C-4)
+
+Tokens sent directly to the router (not via the proper deposit path) are recoverable by the owner via `sweepUnaccounted`. Aggregate accounting (`totalAccounted`) tracks the sum of legitimate per employer balances; anything above that is sweepable. Same pattern as `PayrollTreasury.sweepUnaccounted`.
+
+## Why yield matters
+
+Treasury capital sits idle for two to four weeks between payroll runs. At a conservative 4% annual yield, a $500K monthly payroll generates roughly $1,600 per month in interest at zero employer effort. Over a year, that's $20K. For most companies, this is the difference between Remlo paying for itself and being a line item.
+
+Employers who want the upside as a recruiting tool flip the model to `employee_bonus` or `split`. Employees see the bonus on their payslip with the yield source attribution.
+
+## Live deployment
+
+Tempo Moderato (chainId `42431`):
+
+```
+0x718B2bBfC6434AcaD06416Ad6d51dC6B0A7e3d42
 ```
 
-## Yield Distribution Models
-
-Employers can actively define how the internally generated interest is resolved and distributed:
-
-- **Employer Keeps**: The default business model. The total generated yield remains in the treasury to directly offset the employer's standard platform subscription fees.
-- **Employee Bonus**: Yield is directly forwarded to the employee registry. Instead of offsetting corporate costs, it functions as an effortless automated performance or savings bonus scheme.
-- **Split Configuration**: A configurable fractional percentage split between the employer's operating treasury and the aggregate employee wallets.
-
-## Agent Orchestration
-
-The `YieldRouter` exposes `depositToYield`, `distributeYield`, and `rebalance` state mutation functions.
-
-When interfacing directly through the MPP API via `/api/mpp/treasury/optimize`, autonomous AI agents configured via AgentCash can continuously monitor interest rates across the entire L1 network. When an opportunity arises, they can rebalance the employer's treasury allocations seamlessly to maximize their returns without ever requiring a human operator to log into a dashboard.
+[View on explorer](https://explore.moderato.tempo.xyz/address/0x718B2bBfC6434AcaD06416Ad6d51dC6B0A7e3d42).

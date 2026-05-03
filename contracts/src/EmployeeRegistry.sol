@@ -6,6 +6,13 @@ import {ITIP403} from "./interfaces/ITIP403.sol";
 /// @title EmployeeRegistry
 /// @notice On-chain registry mapping employee IDs to wallet addresses.
 ///         Enforces TIP-403 compliance checks on registration.
+///
+/// @dev    Audit fixes (v2):
+///         - C-6: `getWallet` uses a real reverse mapping (was previously
+///           reading from a placeholder `employerWallets[bytes32(0)]` and
+///           always returning address(0)).
+///         - M-2: `tip403Registry` is now `immutable` set in the constructor
+///           rather than a mutable storage slot with no setter.
 contract EmployeeRegistry {
     struct Employee {
         address wallet;
@@ -25,24 +32,42 @@ contract EmployeeRegistry {
     mapping(bytes32 => EmployerConfig) public employerConfigs;
     mapping(bytes32 => address[]) private employerWallets;
 
-    address public tip403Registry = 0x403c000000000000000000000000000000000000;
+    /// @dev C-6 fix: reverse mapping from `keccak256(employerId, employeeIdHash)`
+    /// to wallet so `getWallet` resolves in O(1) instead of returning a fixed zero.
+    mapping(bytes32 => address) private walletByEmployeeKey;
+
+    /// @dev M-2: Tempo TIP-403 registry precompile. Immutable per-deploy
+    /// (Tempo addresses these precompiles consistently across the chain).
+    address public immutable tip403Registry;
     address public owner;
 
     event EmployeeRegistered(address indexed wallet, bytes32 indexed employerId, bytes32 employeeIdHash);
     event EmployeeDeactivated(address indexed wallet);
     event EmployerConfigured(bytes32 indexed employerId, address admin, uint64 policyId);
 
+    error NotOwner();
+    error NotEmployerAdmin();
+    error EmployerNotConfigured();
+    error WalletAlreadyRegistered();
+    error WalletNotActive();
+    error NotAuthorized();
+    error ComplianceCheckFailed();
+
     modifier onlyOwner() {
-        require(msg.sender == owner, "not owner");
+        if (msg.sender != owner) revert NotOwner();
         _;
     }
 
     modifier onlyEmployerAdmin(bytes32 employerId) {
-        require(employerConfigs[employerId].admin == msg.sender, "not employer admin");
+        if (employerConfigs[employerId].admin != msg.sender) revert NotEmployerAdmin();
         _;
     }
 
-    constructor() {
+    constructor(address _tip403Registry) {
+        // Default to Tempo's canonical TIP-403 precompile when zero is passed.
+        tip403Registry = _tip403Registry == address(0)
+            ? 0x403c000000000000000000000000000000000000
+            : _tip403Registry;
         owner = msg.sender;
     }
 
@@ -57,42 +82,37 @@ contract EmployeeRegistry {
         bytes32 employeeIdHash
     ) external onlyEmployerAdmin(employerId) {
         EmployerConfig memory cfg = employerConfigs[employerId];
-        require(cfg.active, "employer not configured");
+        if (!cfg.active) revert EmployerNotConfigured();
 
         if (cfg.policyId > 0) {
             bool authorized = ITIP403(tip403Registry).isAuthorized(cfg.policyId, wallet);
-            require(authorized, "wallet fails compliance check");
+            if (!authorized) revert ComplianceCheckFailed();
         }
 
-        require(!employees[wallet].active, "wallet already registered");
+        if (employees[wallet].active) revert WalletAlreadyRegistered();
 
         employees[wallet] = Employee(wallet, employerId, cfg.policyId, employeeIdHash, true);
         employerWallets[employerId].push(wallet);
+        walletByEmployeeKey[_employeeKey(employerId, employeeIdHash)] = wallet;
 
         emit EmployeeRegistered(wallet, employerId, employeeIdHash);
     }
 
     function deactivateEmployee(address wallet) external {
         Employee storage emp = employees[wallet];
-        require(emp.active, "not active");
-        require(
-            employerConfigs[emp.employerId].admin == msg.sender || msg.sender == owner,
-            "not authorized"
-        );
+        if (!emp.active) revert WalletNotActive();
+        if (employerConfigs[emp.employerId].admin != msg.sender && msg.sender != owner) revert NotAuthorized();
         emp.active = false;
+        // Clear reverse mapping so a subsequent registration of the same
+        // (employerId, employeeIdHash) pair to a new wallet resolves cleanly.
+        delete walletByEmployeeKey[_employeeKey(emp.employerId, emp.employeeIdHash)];
         emit EmployeeDeactivated(wallet);
     }
 
-    function getWallet(bytes32 employeeIdHash) external view returns (address) {
-        // Linear scan — acceptable for MVP employee counts (<500 per employer)
-        // In production, maintain a reverse mapping.
-        address[] memory wallets = employerWallets[bytes32(0)]; // placeholder
-        for (uint256 i = 0; i < wallets.length; i++) {
-            if (employees[wallets[i]].employeeIdHash == employeeIdHash) {
-                return wallets[i];
-            }
-        }
-        return address(0);
+    /// @notice C-6 fix. Returns wallet for (employerId, employeeIdHash) in O(1).
+    /// Returns address(0) if no such employee is registered for that employer.
+    function getWallet(bytes32 employerId, bytes32 employeeIdHash) external view returns (address) {
+        return walletByEmployeeKey[_employeeKey(employerId, employeeIdHash)];
     }
 
     function getEmployeeCount(bytes32 employerId) external view returns (uint256) {
@@ -105,5 +125,16 @@ contract EmployeeRegistry {
 
     function isRegistered(address wallet) external view returns (bool) {
         return employees[wallet].active;
+    }
+
+    /// @notice True iff `wallet` is an active employee of `employerId`.
+    /// Used by PayrollBatcher (H-4) to validate batch recipients on-chain.
+    function isEmployedBy(address wallet, bytes32 employerId) external view returns (bool) {
+        Employee memory emp = employees[wallet];
+        return emp.active && emp.employerId == employerId;
+    }
+
+    function _employeeKey(bytes32 employerId, bytes32 employeeIdHash) internal pure returns (bytes32) {
+        return keccak256(abi.encodePacked(employerId, employeeIdHash));
     }
 }

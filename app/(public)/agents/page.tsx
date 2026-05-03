@@ -65,12 +65,50 @@ export default async function AgentsPage() {
           Remlo agents
         </h1>
         <p className="text-base text-[var(--text-secondary)]">
-          Every autonomous broadcast Remlo makes is signed by an ERC-8004 agent
-          identity on Tempo Moderato. External agents can register their own
-          identities, authorize against Remlo employers, and build reputation
-          through x402-paid calls against our public API.
+          Most paid endpoints accept payment on three chains in parallel. Pay $0.01 to $1.00 in USDC on Tempo, Base, or Solana. AgentCash, raw <code className="font-mono">@x402/core</code>, Coinbase Agent Kit, or any HTTP client that handles 402 retries works the same way. One protocol, three rails.
+        </p>
+        <p className="text-base text-[var(--text-secondary)]">
+          Every autonomous broadcast Remlo makes is signed by an ERC-8004 agent identity on Tempo. External agents register their own identities, authorize against Remlo employers, and accumulate on-chain reputation with every payment.
         </p>
       </header>
+
+      <section className="space-y-4">
+        <h2 className="text-lg font-semibold text-[var(--text-primary)]">
+          Three rails, one protocol
+        </h2>
+        <div className="grid gap-3 sm:grid-cols-3">
+          <RailCard chain="Tempo" caip="eip155:4217" protocol="mpp" stable="USDC.e" facilitator="Embedded (mppx)" />
+          <RailCard chain="Base" caip="eip155:8453" protocol="x402" stable="USDC" facilitator="CDP" />
+          <RailCard chain="Solana" caip="solana:5eykt4..." protocol="x402" stable="USDC" facilitator="CDP" />
+        </div>
+        <p className="text-xs text-[var(--text-muted)]">
+          State mutating endpoints that touch Tempo treasury balances (payroll execute, fiat off-ramp) accept Tempo only. Reads, queries, escrow lifecycle, and agent-to-agent payments accept all three.
+        </p>
+      </section>
+
+      <section className="space-y-4">
+        <h2 className="text-lg font-semibold text-[var(--text-primary)]">
+          Calling a paid endpoint
+        </h2>
+        <p className="text-sm text-[var(--text-secondary)]">
+          The simplest path is AgentCash. It detects which chain has balance, signs the right protocol&apos;s payload, and retries automatically.
+        </p>
+        <pre className="rounded-md bg-[var(--bg-subtle)] p-3 text-xs overflow-x-auto">
+          {`# Browse what's available
+npx -y agentcash@latest discover https://www.remlo.xyz
+
+# Call any endpoint. AgentCash auto-picks a rail you have balance on.
+npx -y agentcash@latest fetch https://www.remlo.xyz/api/mpp/treasury/yield-rates
+
+# Force a chain
+npx -y agentcash@latest fetch \\
+  https://www.remlo.xyz/api/mpp/escrow/post \\
+  --payment-network solana`}
+        </pre>
+        <p className="text-sm text-[var(--text-secondary)]">
+          Without AgentCash, use <code className="font-mono">@x402/core</code> + <code className="font-mono">@x402/evm</code> or <code className="font-mono">@x402/svm</code> for Base / Solana. Use <code className="font-mono">mppx/client</code> for Tempo. Both libraries handle the 402 challenge, signature, and retry. See the <a href="https://docs.remlo.xyz/docs/mpp-api/multi-rail" className="text-[var(--accent)] hover:underline">Multi-Rail Payments</a> guide for full code samples.
+        </p>
+      </section>
 
       <section className="space-y-4">
         <h2 className="text-lg font-semibold text-[var(--text-primary)]">
@@ -99,32 +137,20 @@ export default async function AgentsPage() {
 
       <section className="space-y-4">
         <h2 className="text-lg font-semibold text-[var(--text-primary)]">
-          How to register your agent
+          Register your own agent
         </h2>
         <ol className="space-y-3 text-sm text-[var(--text-secondary)] list-decimal pl-5">
           <li>
-            Mint an ERC-8004 Identity token on Tempo (or use an existing
-            Ethereum mainnet Identity — ownership transfers cleanly to your
-            deployer address).
+            Mint an ERC-8004 Identity token on Tempo, or use an existing Ethereum mainnet Identity. Ownership transfers cleanly to your deployer address.
           </li>
           <li>
-            Serve your agent registration file at{' '}
-            <code className="font-mono">
-              https://yourdomain/.well-known/agent-registration.json
-            </code>
-            . The file conforms to ERC-8004&apos;s AgentCard spec: endpoints,
-            capabilities, supported protocols, pricing.
+            Serve your agent registration file at <code className="font-mono">https://yourdomain/.well-known/agent-registration.json</code>. The file conforms to ERC-8004&apos;s AgentCard spec: endpoints, capabilities, supported protocols, pricing.
           </li>
           <li>
-            Once minted, authorize your agent identifier against any Remlo
-            employer via <code className="font-mono">/dashboard/settings/agents</code>.
-            That grants per-tx and per-day spend caps on{' '}
-            <code className="font-mono">/api/mpp/agent/pay</code>.
+            Authorize your agent identifier against any Remlo employer at <code className="font-mono">/dashboard/settings/agents</code>. The employer sets per-transaction and per-day spend caps that apply to <code className="font-mono">/api/mpp/agent/pay</code>.
           </li>
           <li>
-            Call <code className="font-mono">/api/mpp/agent/pay</code>. Remlo
-            posts feedback to your agent&apos;s ReputationRegistry slot after
-            every successful payment — mutual reputation-building.
+            Call <code className="font-mono">/api/mpp/agent/pay</code>. Remlo writes feedback to your agent&apos;s ReputationRegistry slot after every successful payment. Reputation accumulates as you transact, portable across any ERC-8004-aware system.
           </li>
         </ol>
 
@@ -148,12 +174,7 @@ await reputationRegistry.giveFeedback({
           Why this matters
         </h2>
         <p className="text-sm text-[var(--text-secondary)]">
-          When an employer signs up, the infrastructure isn&apos;t just payroll
-          plumbing — it&apos;s an ERC-8004 reputation substrate. Every payment
-          is a mutual feedback event. Over time, Remlo-managed treasuries
-          accumulate auditable track records on Tempo, and the external agents
-          they transact with earn reputation on their own terms, portable
-          across any ERC-8004-aware system.
+          When an employer signs up, the infrastructure isn&apos;t just payroll plumbing. It&apos;s an ERC-8004 reputation substrate writing alongside Solana&apos;s SAS. Every payment is a mutual feedback event. Over time, Remlo-managed treasuries accumulate auditable track records on Tempo, and the external agents they transact with earn reputation on their own terms, portable across any system that reads either registry.
         </p>
       </section>
 
@@ -163,7 +184,35 @@ await reputationRegistry.giveFeedback({
         <Link href="/api/agents/remlo" className="underline">
           Machine-readable endpoint
         </Link>
+        {' · '}
+        <a href="https://www.remlo.xyz/openapi.json" className="underline">OpenAPI spec</a>
+        {' · '}
+        <a href="https://docs.remlo.xyz" className="underline">Full docs</a>
       </footer>
+    </div>
+  )
+}
+
+function RailCard({ chain, caip, protocol, stable, facilitator }: {
+  chain: string
+  caip: string
+  protocol: string
+  stable: string
+  facilitator: string
+}) {
+  return (
+    <div className="rounded-2xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-4 space-y-2">
+      <div className="flex items-center justify-between">
+        <h3 className="text-sm font-bold text-[var(--text-primary)]">{chain}</h3>
+        <span className="rounded-full border border-[var(--accent)]/20 bg-[var(--accent-subtle)] px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-[var(--accent)]">
+          {protocol}
+        </span>
+      </div>
+      <p className="text-xs font-mono text-[var(--text-muted)]">{caip}</p>
+      <div className="pt-2 border-t border-[var(--border-default)] space-y-1">
+        <p className="text-xs"><span className="text-[var(--text-muted)]">Stablecoin:</span> <span className="text-[var(--text-primary)]">{stable}</span></p>
+        <p className="text-xs"><span className="text-[var(--text-muted)]">Facilitator:</span> <span className="text-[var(--text-primary)]">{facilitator}</span></p>
+      </div>
     </div>
   )
 }

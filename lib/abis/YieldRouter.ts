@@ -1,5 +1,5 @@
 // Auto-generated from contracts/out/YieldRouter.sol/YieldRouter.json
-// Do not edit manually — regenerate with: forge build
+// Do not edit manually — regenerate with: pnpm tsx scripts/regenerate-abis.ts
 
 export const YieldRouterABI = [
   {
@@ -67,6 +67,25 @@ export const YieldRouterABI = [
   },
   {
     "type": "function",
+    "name": "approvedStrategies",
+    "inputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "depositToYield",
     "inputs": [
       {
@@ -88,13 +107,32 @@ export const YieldRouterABI = [
     "name": "distributeYield",
     "inputs": [
       {
-        "name": "employerId",
+        "name": "",
         "type": "bytes32",
         "internalType": "bytes32"
       }
     ],
     "outputs": [],
-    "stateMutability": "nonpayable"
+    "stateMutability": "pure"
+  },
+  {
+    "type": "function",
+    "name": "employerAdmins",
+    "inputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
   },
   {
     "type": "function",
@@ -229,6 +267,42 @@ export const YieldRouterABI = [
   },
   {
     "type": "function",
+    "name": "setEmployerAdmin",
+    "inputs": [
+      {
+        "name": "employerId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "admin",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "setStrategyApproval",
+    "inputs": [
+      {
+        "name": "strategy",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "approved",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "setYieldConfig",
     "inputs": [
       {
@@ -254,6 +328,42 @@ export const YieldRouterABI = [
     ],
     "outputs": [],
     "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "sweepUnaccounted",
+    "inputs": [
+      {
+        "name": "token",
+        "type": "address",
+        "internalType": "contract ITIP20"
+      },
+      {
+        "name": "to",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "amount",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "totalAccountedDeposits",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
   },
   {
     "type": "function",
@@ -305,6 +415,25 @@ export const YieldRouterABI = [
   },
   {
     "type": "event",
+    "name": "EmployerAdminSet",
+    "inputs": [
+      {
+        "name": "employerId",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "admin",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "Rebalanced",
     "inputs": [
       {
@@ -318,6 +447,50 @@ export const YieldRouterABI = [
         "type": "uint256[]",
         "indexed": false,
         "internalType": "uint256[]"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "StrategyApprovalChanged",
+    "inputs": [
+      {
+        "name": "strategy",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "approved",
+        "type": "bool",
+        "indexed": false,
+        "internalType": "bool"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "UnaccountedSwept",
+    "inputs": [
+      {
+        "name": "token",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "to",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "amount",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
       }
     ],
     "anonymous": false
@@ -390,5 +563,55 @@ export const YieldRouterABI = [
       }
     ],
     "anonymous": false
+  },
+  {
+    "type": "error",
+    "name": "AllocationMustSumToFull",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "InvalidBps",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "LengthMismatch",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "NotEmployerAdmin",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "NotImplemented",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "NotOwner",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "UnapprovedStrategy",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "WouldTouchAccountedFunds",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "ZeroAddress",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "ZeroAmount",
+    "inputs": []
   }
 ] as const

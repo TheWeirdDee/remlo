@@ -1,5 +1,5 @@
 // Auto-generated from contracts/out/PayrollBatcher.sol/PayrollBatcher.json
-// Do not edit manually — regenerate with: forge build
+// Do not edit manually — regenerate with: pnpm tsx scripts/regenerate-abis.ts
 
 export const PayrollBatcherABI = [
   {
@@ -17,6 +17,19 @@ export const PayrollBatcherABI = [
       }
     ],
     "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "MAX_BATCH_SIZE",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
   },
   {
     "type": "function",
@@ -46,6 +59,19 @@ export const PayrollBatcherABI = [
         "name": "",
         "type": "bool",
         "internalType": "bool"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "employeeRegistry",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "contract EmployeeRegistry"
       }
     ],
     "stateMutability": "view"
@@ -119,6 +145,19 @@ export const PayrollBatcherABI = [
   },
   {
     "type": "function",
+    "name": "setEmployeeRegistry",
+    "inputs": [
+      {
+        "name": "_registry",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "treasury",
     "inputs": [],
     "outputs": [
@@ -158,8 +197,27 @@ export const PayrollBatcherABI = [
   },
   {
     "type": "event",
+    "name": "EmployeeRegistrySet",
+    "inputs": [
+      {
+        "name": "registry",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "PaymentSent",
     "inputs": [
+      {
+        "name": "employerId",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
       {
         "name": "recipient",
         "type": "address",
@@ -192,6 +250,12 @@ export const PayrollBatcherABI = [
         "internalType": "address"
       },
       {
+        "name": "employerId",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
         "name": "recipientCount",
         "type": "uint256",
         "indexed": false,
@@ -205,5 +269,41 @@ export const PayrollBatcherABI = [
       }
     ],
     "anonymous": false
+  },
+  {
+    "type": "error",
+    "name": "BatchTooLarge",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "EmptyBatch",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "LengthMismatch",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "NotAuthorizedAgent",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "NotOwner",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "RecipientNotEmployed",
+    "inputs": [
+      {
+        "name": "recipient",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
   }
 ] as const

@@ -1,24 +1,83 @@
 ---
 title: "AgentCash"
-description: "An agent-side wallet for executing autonomous workflows."
+description: "Multi chain agent wallet for paying x402 and mpp endpoints."
 ---
 
-AgentCash is an agent-side wallet and standard CLI for negotiating and paying L402 HTTP constraints. **It is not a server integration you build into Remlo**—instead, AgentCash is the spending account, and Remlo is what it spends on.
+AgentCash is the easiest way for an autonomous agent to pay Remlo's MPP and x402 endpoints. It's an agent side wallet, not a server integration. Remlo doesn't depend on AgentCash; AgentCash is one of many ways to pay our endpoints (the others are raw `@x402/core` SDK, Coinbase Agent Kit, and any custom HTTP client that implements the 402 retry loop).
 
-If you are a developer spinning up an AI agent script that interacts with Remlo's MPP endpoints, you wrap those requests using the AgentCash module. AgentCash creates a dedicated wallet key for your script, tracks the gas and session budgets, intercepts any HTTP 402 Payment Required block, completes the cryptographic L402 challenge, signs it, and repeats the original request—all automatically behind the scenes.
+## Why AgentCash
 
-## Provisioning
+It handles three things automatically:
 
-To grant your agent direct access to the Remlo treasury session logic or endpoint network, use the CLI locally:
+1. **Multi chain wallet.** One AgentCash account holds USDC on Tempo, Base, and Solana. Same identity, three keypairs (EVM keys are network agnostic; Solana uses its own keypair). When you fund any chain, balance shows up under the same wallet object.
+2. **402 negotiation.** When an HTTP request returns 402, AgentCash reads the `accepts[]` array, matches networks against your wallet balances, picks one, signs the payment proof, and retries the request with the proof attached. No agent code touches the protocol layer.
+3. **Discovery.** Endpoints publish their pricing and supported rails via OpenAPI. AgentCash discovers and lists them by origin without paying anything.
 
-```bash
-npx agentcash add https://remlo.xyz
-```
-
-This binds an identity specifically to Remlo's operational bounds. To execute a test run against the `Agent/Session/Treasury` context, verifying the configuration:
+## Setup
 
 ```bash
-npx agentcash try https://remlo.xyz
+npx -y agentcash@latest onboard
 ```
 
-You can view verified interactions inside the open registry via the [MPPscan Explorer](https://mppscan.net) tied to the agent wallet identifier.
+The onboard flow provisions an AgentCash account and prints deposit links for each chain. Fund whichever chain you want to pay from. $1 of USDC is enough for ~100 calls at $0.01 each.
+
+To verify your setup:
+
+```bash
+npx -y agentcash@latest list_accounts
+```
+
+Outputs a JSON list of every chain, your address, current balance, and a deposit link. Three chains appear: `base`, `tempo`, `solana`.
+
+## Discovering Remlo's endpoints
+
+```bash
+npx -y agentcash@latest discover https://www.remlo.xyz
+```
+
+Returns the OpenAPI metadata for every paid endpoint Remlo exposes, with prices, accepted protocols (`mpp`, `x402`), and accepted networks. The same data is in `https://www.remlo.xyz/openapi.json` if you prefer to consume it directly.
+
+## Calling a paid endpoint
+
+```bash
+npx -y agentcash@latest fetch https://www.remlo.xyz/api/mpp/treasury/yield-rates
+```
+
+AgentCash auto-picks the rail to pay on. If your wallet has Solana USDC, it pays in Solana. If only Tempo, it pays in Tempo. To force a specific rail:
+
+```bash
+npx -y agentcash@latest fetch \
+  https://www.remlo.xyz/api/mpp/treasury/yield-rates \
+  --payment-network solana
+```
+
+The agent sees a `200 OK` with the response body. Payment is recorded by Remlo and settled by the facilitator out of band; AgentCash doesn't block on settlement confirmation.
+
+## In MCP mode
+
+AgentCash exposes its tooling as an MCP server. Once registered with Claude Desktop, Claude Code, Cursor, or any MCP-compatible client, the model can call Remlo endpoints autonomously by invoking the `fetch` tool. You don't write any glue code.
+
+To install for your client of choice:
+
+```bash
+npx -y agentcash@latest install claude-code
+# or claude-desktop, cursor, etc.
+```
+
+The install command registers the MCP server in your client's config and prompts you to fund your wallet on first use.
+
+## What about non AgentCash agents
+
+The protocol is open. Any HTTP client can:
+
+1. Read the 402 response and the `accepts[]` array (or the `WWW-Authenticate: mpp` header for the Tempo rail).
+2. Sign a payment proof with the wallet of their choice (`viem`, `ethers`, `@solana/web3.js`, `@x402/core`'s built in clients).
+3. Retry the same URL with `Authorization: mpp <credential>` for Tempo or `X-PAYMENT: <base64 payload>` for Base/Solana.
+
+The [Authentication](/docs/mpp-api/authentication) page describes the wire format for both protocols. The `@x402/core` package on npm provides a TypeScript client that handles encoding and signing if you don't want to roll your own.
+
+## What AgentCash isn't
+
+- It isn't a dependency for Remlo. We don't ship code that requires AgentCash to run.
+- It isn't an authentication system. Identity comes from Privy JWTs (for endpoints that need a principal) or from the agent's wallet address itself (for endpoints that only need to know who paid).
+- It isn't a Remlo product. AgentCash is built and operated by `agentcash.dev`. We use them because they implement the open x402 / mpp protocols correctly, not because of any contractual relationship.

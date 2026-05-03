@@ -1,38 +1,50 @@
 ---
 title: "Payroll Batcher"
-description: "High-throughput parallel transaction execution for batched salary distribution."
+description: "Atomic multi recipient payroll distribution on Tempo."
 ---
 
-The `PayrollBatcher` handles the transactional heavy lifting when an employer processes a periodic payroll cycle for their entire team. 
+`PayrollBatcher` distributes a payroll batch to N recipients in one transaction. It pulls the exact total from `PayrollTreasury`, transfers to each employee, attaches a 32-byte ISO 20022 memo per item, and emits a single `PaymentSent` event indexed by `employerId` and `runId`.
 
-Relying on individual wallet-to-wallet transactions for a large workforce is computationally expensive, prone to nonce-collisions, and consumes excessive time. The batcher circumvents this by coordinating the bulk distribution of all salaries into a single atomic on-chain operation.
+## Function signature
 
-```mermaid
-flowchart TD
-    A[Employer / AI Agent] -->|Trigger /execute| B(PayrollBatcher)
-    B -->|Verify Authorization| C{Is Authorized?}
-    C -->|Yes| D[Pull Total from Treasury]
-    D --> E[Loop: Transfer to Wallet 1 + Memo]
-    D --> F[Loop: Transfer to Wallet 2 + Memo]
-    D --> G[Loop: Transfer to Wallet N + Memo]
-    E --> H((Completed))
-    F --> H
-    G --> H
-    C -->|No| I([Revert Transaction])
+```solidity
+function executeBatchPayroll(
+    address[] calldata recipients,
+    uint256[] calldata amounts,
+    bytes32[] calldata memos,
+    bytes32 employerId
+) external onlyAuthorizedAgent nonReentrant
 ```
 
-## Execution Flow and Parameters
+- `recipients`: employee wallet addresses, one per payment.
+- `amounts`: stablecoin amounts in atomic units (USDC.e has 6 decimals).
+- `memos`: 32-byte ISO 20022 TIP-20 memos. Encoded by `lib/memo.ts` with `messageType` (4 bytes), `employerId` prefix (8 bytes), `employeeId` prefix (8 bytes), `payPeriod` (4 bytes), `costCenter` (4 bytes), `recordHash` (4 bytes).
+- `employerId`: keccak256 identifier of the employer in `PayrollTreasury`.
 
-When triggered (either manually via the dashboard or programmatically by an AI agent through AgentCash), the batcher's primary execution function `executeBatchPayroll` receives three critical arrays arrays matching the workforce index:
+The function reverts with `LengthMismatch` if the three arrays don't match. Reverts with `EmptyBatch` on zero recipients. Reverts with `BatchTooLarge` if `recipients.length > 500` (audit fix M-3 caps batch size to bound gas usage).
 
-1. `recipients`: An array containing every receiving employee's on-chain wallet address.
-2. `amounts`: The exact stablecoin amount each employee is owed for the given cycle.
-3. `memos`: A matching array of 32-byte TIP-20 encoded memos ensuring strict accounting compliance for the transfer.
+## Authorization
 
-The contract loops through the `recipients` arrays to issue stablecoin transfers. By executing on the Tempo L1 utilizing its high-throughput engine, the gas overhead for this massively parallel operation is fractions of a cent, and execution finality is virtually instantaneous.
+`executeBatchPayroll` is `onlyAuthorizedAgent`. Only the Remlo agent EOA (or the contract owner) can call it. The batcher itself does not check Privy JWTs or x402 payment headers; those checks happen at the API layer (`/api/mpp/payroll/execute`) before the agent broadcasts the on-chain call.
 
-### Agent Authorization Boundaries
+## Optional employee validation (audit fix H-4)
 
-Because the batcher directly interfaces with the `PayrollTreasury` to disburse capital, the `executeBatchPayroll` method is locked behind strict access controls. 
+If `Batcher.employeeRegistry` is set to a non-zero address, the contract loops through `recipients` and reverts with `RecipientNotEmployed(address)` for any wallet not registered in `EmployeeRegistry` under the supplied `employerId`. This protects against a compromised agent broadcasting payments to wallets outside the employer's verified team.
 
-If an AI agent calls the executor autonomously via the MPP endpoint (`/api/mpp/payroll/execute`), the smart contract verifies the session's validity, the agent's pre-approved spending keys, and the `lockedBalance` state inside the treasury before the batcher is allowed to move a single cent.
+The flag is opt-in. During the v2 redeploy migration period (employees are still re-registering on the new `EmployeeRegistry`), the registry is set to `0x0` and validation is skipped. Re-wire after migration completes.
+
+## Settlement
+
+The function pulls the exact total from `PayrollTreasury` via `safeTransferFrom` (audit fix H-1: SafeTIP20 wrapper handles non-compliant TIP-20 return values). Each recipient transfer happens in the same transaction. If any single transfer fails, the whole batch reverts. Settlement on Tempo lands in the same block, typically under a second.
+
+After successful execution, `PaymentSent(employerId indexed, runId indexed, total, recipientCount)` is emitted (audit fix M-6: `employerId` indexed for off-chain query efficiency). Off-chain indexers update `payment_items.tx_hash` and flip status to `pending` until the chain confirmation cron promotes them to `confirmed`.
+
+## Why atomic batches
+
+A naive payroll loop of N individual transactions has N gas overheads, N nonce updates, and N opportunities for partial failure. The batcher gives:
+
+1. One nonce, one fee. Constant overhead regardless of batch size.
+2. Atomicity. Either everyone gets paid, or no state changes. Partial-pay states are impossible.
+3. One indexed event for the whole run. Reputation and reporting cron jobs read one log entry instead of N.
+
+For batches over 500 recipients, the API splits into multiple batched runs and chains them in a single user-facing payroll job.

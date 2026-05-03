@@ -1,32 +1,53 @@
 ---
 title: "Stream Vesting"
-description: "Real-time salary streaming and autonomous accrued balance claims."
+description: "Native streaming compensation on Tempo."
 ---
 
-Standard payroll usually operates in discrete, bi-weekly or monthly batches. Remlo introduces `StreamVesting` to allow employers to pay their teams continually—by the second—replacing stagnant ledgers with fluid capital routing.
+`StreamVesting` lets employers pay employees continuously instead of in discrete pay periods. The contract calculates accrued balance from `block.timestamp` and lets employees claim any portion of the vested amount before payday.
 
-```mermaid
-flowchart LR
-    A[Employer Funds Contract] -->|Start Vesting| B(StreamVesting)
-    B -->|Ticks Block.Timestamp| C{Accrue Salary}
-    C -->|Trigger Claim| D[Calculate Vested Total]
-    D -->|Subtract Released| E[Issue PathUSD to Employee]
+## How streams work
+
+When an employer sets an employee on a streaming structure, they call `createStream(recipient, totalAmount, startTime, endTime)`. The contract locks the total amount in the employer's treasury sub-account and records the stream parameters.
+
+At any time `t` in `[startTime, endTime]`, the accrued balance is:
+
+```
+accrued(t) = totalAmount * (t - startTime) / (endTime - startTime)
 ```
 
-## Implementing Salary Streaming
+The employee can call `claimAccrued(streamId)` to receive `accrued(t) - alreadyClaimed`. The contract transfers the delta and updates `alreadyClaimed`.
 
-When an employee is configured for a streaming payroll structure, the employer defines a total amount, a specific stream start time, and an end time reflecting the pay cycle bounds.
+After `endTime`, the stream is fully vested and the employee can claim the remainder in one transaction.
 
-The `StreamVesting` contract mathematically calculates the employee's vested available balance completely on-chain in real-time. Because of the immutable nature of block timestamps on the Tempo network, the exact accrued float is always mathematically guaranteed without requiring secondary execution layers or off-chain workers.
+## Cancellation and refunds (audit fix H-2)
 
-### Claiming Accruals
+Employers can cancel a stream early via `cancelStream(streamId)`. On cancel:
 
-Under a traditional model, an employee must wait weeks to see their paycheck deposit. With Stream Vesting, the employee or their automated agent can invoke `claimAccrued` via the `POST /api/mpp/employee/advance` endpoint at any point.
+1. The accrued portion goes to the employee.
+2. The unaccrued portion returns to the employer.
 
-The contract logic runs as follows:
-1. Validates the current `block.timestamp`.
-2. Calculates the exact fractional vested amount based on the stream bounds.
-3. Automatically subtracts any amount that has already been claimed (`released`) within the exact cycle.
-4. Immediately transfers the liquid pathUSD stablecoins to the employee's wallet with the correct standard payroll memo attached.
+If the cancel time refund to the employer fails (e.g., the employer's treasury account was deactivated), the unaccrued amount is enqueued in `unclaimedEmployerRefunds[employer]`. The employer can later call `claimEmployerRefund()` to recover those funds. Before this fix, a failed refund silently lost the unaccrued amount.
 
-This provides ultimate localized liquidity, enabling workers to secure real-time salary advances to offset expenses precisely when they need it, entirely circumventing high-interest loans.
+## `claimAccrued` returns void
+
+Audit fix H-3. The previous version returned the claimed amount, which encouraged callers to use the return value as state. The new version returns `void` and emits `AccruedClaimed(streamId, amount, claimer)`. Off-chain consumers read the event log instead.
+
+## SafeTIP20 wrapper (audit fix H-1)
+
+All token transfers go through the `SafeTIP20` library wrappers (`safeTransfer`, `safeTransferFrom`, `safeTransferWithMemo`, `safeTransferFromWithMemo`). These handle non-compliant TIP-20 tokens that don't return a boolean, preventing silent failure on a token that returns void where the spec expects `bool success`.
+
+## Why streaming
+
+A monthly paycheck creates a 30 day liquidity gap. Employees borrow against future income at high APR through payday loans, BNPL, or credit cards. Streaming compresses the gap to seconds. The employee accesses their earned-but-not-paid balance whenever they need it, without an advance, a loan, or a credit check.
+
+For employers, streaming is the same total payroll spread over the same period. No additional cost. The cost shifts entirely to the employee in the form of certainty: they always know exactly what they've earned.
+
+## Live deployment
+
+Tempo Moderato (chainId `42431`):
+
+```
+0xEEd5bab5A4A09fd59610513C95E106D285c87A2F
+```
+
+[View on explorer](https://explore.moderato.tempo.xyz/address/0xEEd5bab5A4A09fd59610513C95E106D285c87A2F).

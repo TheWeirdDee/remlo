@@ -1,5 +1,5 @@
 // Auto-generated from contracts/out/StreamVesting.sol/StreamVesting.json
-// Do not edit manually — regenerate with: forge build
+// Do not edit manually — regenerate with: pnpm tsx scripts/regenerate-abis.ts
 
 export const StreamVestingABI = [
   {
@@ -36,13 +36,14 @@ export const StreamVestingABI = [
         "internalType": "address"
       }
     ],
-    "outputs": [
-      {
-        "name": "txHash",
-        "type": "bytes32",
-        "internalType": "bytes32"
-      }
-    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "claimEmployerRefund",
+    "inputs": [],
+    "outputs": [],
     "stateMutability": "nonpayable"
   },
   {
@@ -239,6 +240,88 @@ export const StreamVestingABI = [
     "stateMutability": "view"
   },
   {
+    "type": "function",
+    "name": "unclaimedEmployerRefunds",
+    "inputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "event",
+    "name": "AccruedClaimed",
+    "inputs": [
+      {
+        "name": "employee",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "totalReleasable",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "EmployerRefundClaimed",
+    "inputs": [
+      {
+        "name": "employer",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "amount",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "EmployerRefundDeferred",
+    "inputs": [
+      {
+        "name": "employer",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "amount",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "reason",
+        "type": "string",
+        "indexed": false,
+        "internalType": "string"
+      }
+    ],
+    "anonymous": false
+  },
+  {
     "type": "event",
     "name": "StreamCancelled",
     "inputs": [
@@ -318,5 +401,50 @@ export const StreamVestingABI = [
       }
     ],
     "anonymous": false
+  },
+  {
+    "type": "error",
+    "name": "CliffBeforeStart",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "CliffNotReached",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "InvalidPeriod",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "NoRefundPending",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "NotActive",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "NotAuthorized",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "NothingToClaim",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "NothingToRelease",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "ZeroAmount",
+    "inputs": []
   }
 ] as const

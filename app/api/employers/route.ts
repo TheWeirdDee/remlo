@@ -2,31 +2,14 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getAddress, isAddress } from 'viem'
 import { createServerClient } from '@/lib/supabase-server'
 import { PAYROLL_TREASURY_ADDRESS } from '@/lib/constants'
-
-function decodePrivyToken(token: string): { sub: string } | null {
-  try {
-    const [, payload] = token.split('.')
-    const base64 = payload.replace(/-/g, '+').replace(/_/g, '/')
-    const padded = base64.padEnd(base64.length + ((4 - (base64.length % 4)) % 4), '=')
-    const decoded = JSON.parse(atob(padded)) as { sub?: string; exp?: number }
-    if (!decoded.sub) return null
-    if (decoded.exp && decoded.exp * 1000 < Date.now()) return null
-    return { sub: decoded.sub }
-  } catch {
-    return null
-  }
-}
+import { getPrivyClaims } from '@/lib/auth'
+import { sendEmail } from '@/lib/email/client'
+import { getPrivyUserEmail } from '@/lib/email/recipients'
 
 export async function GET(req: NextRequest) {
-  const authHeader = req.headers.get('authorization')
-  if (!authHeader?.startsWith('Bearer ')) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
-
-  const token = authHeader.slice(7)
-  const decoded = decodePrivyToken(token)
+  const decoded = await getPrivyClaims(req)
   if (!decoded) {
-    return NextResponse.json({ error: 'Invalid or expired token' }, { status: 401 })
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
   const supabase = createServerClient()
@@ -45,15 +28,9 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const authHeader = req.headers.get('authorization')
-  if (!authHeader?.startsWith('Bearer ')) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
-
-  const token = authHeader.slice(7)
-  const decoded = decodePrivyToken(token)
+  const decoded = await getPrivyClaims(req)
   if (!decoded) {
-    return NextResponse.json({ error: 'Invalid or expired token' }, { status: 401 })
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
   const body = (await req.json()) as {
@@ -141,6 +118,22 @@ export async function POST(req: NextRequest) {
       )
     }
   }
+
+  void (async () => {
+    const email = await getPrivyUserEmail(decoded.sub)
+    if (!email) return
+    const appUrl = (req.nextUrl.origin || process.env.NEXT_PUBLIC_APP_URL || 'https://remlo.xyz').replace(/\/$/, '')
+    await sendEmail({
+      to: email,
+      template: 'employer_welcome',
+      idempotencyKey: `employer-welcome-${data.id}`,
+      props: {
+        firstName: null,
+        companyName,
+        appUrl,
+      },
+    })
+  })()
 
   return NextResponse.json({ employerId: data.id }, { status: 201 })
 }

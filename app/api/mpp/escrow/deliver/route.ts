@@ -1,15 +1,18 @@
-import { mppx } from '@/lib/mpp'
+import { multiRailCharge } from '@/lib/x402-multi-rail'
 import { submitDeliverable, publicEscrowView } from '@/lib/escrow'
 
 /**
  * POST /api/mpp/escrow/deliver
- * MPP-15 — $0.02 x402 charge.
+ * Multi-rail $0.02 — accepts Tempo (mpp) or Base / Solana (x402).
  *
  * Submits a deliverable URI for an existing escrow. The submitting agent
  * must match worker_agent_identifier recorded at post time. Validation +
  * settlement runs async — caller polls /status to see the final verdict.
  */
-export const POST = mppx.charge({ amount: '0.02' })(async (req: Request) => {
+export const POST = multiRailCharge({
+  amount: '0.02',
+  description: 'Submit escrow deliverable',
+})(async (req: Request) => {
   const agentIdentifier = req.headers.get('x-agent-identifier')?.trim()
   if (!agentIdentifier) {
     return Response.json(

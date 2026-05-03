@@ -1,20 +1,123 @@
 ---
 title: "Authentication"
-description: "HTTP 402 flows and agent keys."
+description: "How agents prove payment on Tempo, Base, and Solana."
 ---
 
-You interact with Remlo's MPP endpoints not with standard Bearer tokens, but through HTTP 402 Payment Required flows utilizing the Tempo wallet connected to the caller.
+Remlo's paid endpoints don't use API keys. They use HTTP 402 Payment Required with two protocols: `mpp` (Tempo) and `x402` (Base, Solana). An agent reads the 402 challenge, picks a chain, signs a payment proof, and retries the same URL with the proof in a header.
 
-## Initiating a Payment
+## Two protocols, three chains
 
-When a standard REST request is made to an endpoint, the server responds with an `L402` macro, stipulating the payment network, the receiver (`REMLO_TREASURY_ADDRESS`), and the required currency format. 
+| Protocol | Chain | Header on retry |
+|---|---|---|
+| `mpp` | Tempo Moderato (chainId `4217` mainnet, `42431` testnet) | `Authorization: mpp <credential>` |
+| `x402` | Base mainnet (`eip155:8453`) | `X-PAYMENT: <base64 payload>` |
+| `x402` | Solana mainnet (`solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp`) | `X-PAYMENT: <base64 payload>` |
 
-Your application or agent intercepts this, constructs a transaction satisfying the constraint on the Moderato network, and re-submits the original request with the transaction hash wrapped in a custom `Authorization: L402 <hash>` header.
+The same endpoint accepts all three. The server dispatches based on which header the agent sends.
 
-### Automated Flow with AgentCash
+## What 402 looks like
 
-Instead of orchestrating this process manually, we recommend passing requests via the AgentCash package, which abstracts away the L402 intercept/retry and executes the corresponding stablecoin transaction automatically based on your agent's private key.
+A request without payment headers returns:
+
+```http
+HTTP/1.1 402 Payment Required
+WWW-Authenticate: mpp realm="www.remlo.xyz", method="tempo",
+                      chainId="4217", currency="0x20C00000...",
+                      recipient="0xC9231...", amount="0.01"
+Content-Type: application/json
+
+{
+  "x402Version": 2,
+  "resource": { "url": "https://www.remlo.xyz/api/mpp/treasury/yield-rates" },
+  "accepts": [
+    {
+      "scheme": "exact",
+      "network": "eip155:8453",
+      "asset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+      "amount": "10000",
+      "payTo": "0xC9231...",
+      "maxTimeoutSeconds": 60
+    },
+    {
+      "scheme": "exact",
+      "network": "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
+      "asset": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+      "amount": "10000",
+      "payTo": "BxoTaz3...",
+      "maxTimeoutSeconds": 60
+    }
+  ]
+}
+```
+
+The `WWW-Authenticate: mpp ...` header is the Tempo challenge. The JSON body's `accepts` array lists the x402 options (Base, Solana). An agent picks one based on which wallet has balance, signs the proof, and retries.
+
+## Tempo: mpp protocol
+
+If the agent's wallet has Tempo USDC.e and they want to pay on Tempo:
+
+1. Read the `WWW-Authenticate: mpp` header. Note `chainId`, `currency`, `recipient`, `amount`.
+2. Construct an mpp credential. The simplest form uses the `mppx/client` SDK or AgentCash, which signs an EIP-3009 `transferWithAuthorization` against the recipient and returns a base64 credential string.
+3. Retry the original URL with `Authorization: mpp <credential>`.
+4. The server verifies via mppx's embedded facilitator, runs the handler, and returns 200 with a `Payment-Receipt` response header.
 
 ```bash
-npx agentcash try https://remlo.xyz
+# AgentCash handles this automatically:
+npx -y agentcash@latest fetch https://www.remlo.xyz/api/mpp/treasury/yield-rates \
+  --payment-network tempo
 ```
+
+## Base or Solana: x402 protocol
+
+If the agent's wallet has USDC on Base or USDC on Solana and they want to pay on either:
+
+1. Read the JSON body's `accepts` array. Pick the entry whose `network` matches the wallet's chain.
+2. Construct the x402 v2 payload:
+   - `scheme`: copy from the picked entry (`exact`).
+   - `network`: copy from the picked entry.
+   - For Base: sign an EIP-3009 `transferWithAuthorization` from the agent's wallet to `payTo` for `amount` of `asset`.
+   - For Solana: sign an SPL token transfer from the agent's wallet to the recipient's USDC token account for `amount`.
+3. Wrap the signed proof in `{ x402Version: 2, accepted: <picked>, payload: <signed> }`.
+4. Base64 encode the JSON. Set as `X-PAYMENT` header. Retry the URL.
+5. Server verifies via the CDP facilitator. On success, runs the handler and returns 200.
+
+The `@x402/core` + `@x402/evm` + `@x402/svm` packages handle the signing and encoding. AgentCash wraps them all.
+
+```bash
+# AgentCash on Solana:
+npx -y agentcash@latest fetch https://www.remlo.xyz/api/mpp/treasury/yield-rates \
+  --payment-network solana
+
+# Or Base:
+npx -y agentcash@latest fetch https://www.remlo.xyz/api/mpp/treasury/yield-rates \
+  --payment-network base
+```
+
+## Settlement
+
+Verification runs synchronously, before the handler. Settlement (broadcasting the signed proof on-chain to actually move the USDC) runs after the handler returns, fire and forget. Handler latency is not extended by the on-chain confirmation step.
+
+If settlement fails after the handler returned, the error is logged server-side but the response that already went out stands. The signed proof is recorded in the facilitator's queue and can be re-broadcast or claimed later. From the agent's perspective, payment is irreversible the moment they sent the signed proof.
+
+## State mutating endpoints
+
+Two endpoints intentionally accept Tempo only:
+
+- `POST /api/mpp/payroll/execute` ($1.00). Writes to Tempo PayrollTreasury + PayrollBatcher.
+- `POST /api/mpp/bridge/offramp` ($0.25). Pulls from Tempo treasury and posts to Bridge.
+
+Charging in another currency for a Tempo state mutation creates a settlement asymmetry. If the on-chain action reverts after the agent paid in Solana USDC, refunding the Solana side requires a separate cross-chain operation we don't run.
+
+## What the server checks
+
+For `mpp` (Tempo): the credential signature recovers to the agent's claimed wallet, the EIP-3009 authorization is unused, the amount and recipient match the challenge, and the chainId is `4217` (mainnet) or `42431` (testnet) as configured.
+
+For `x402` (Base / Solana): the X-PAYMENT header is base64 valid JSON matching the v2 schema, `accepted.network` is one of our supported rails, and the CDP facilitator's `verifyPayment` returns `isValid: true`. Verification details (signature recovery, asset address match, amount match) live inside the facilitator and the protocol scheme implementation.
+
+If verification fails, the server returns 402 again with an error string explaining why.
+
+## Why no API keys
+
+Remlo doesn't issue API keys for paid endpoints because the protocol already provides a stronger primitive: every request carries a fresh, signed proof of payment. An agent's wallet is its identity. There's nothing to leak that wouldn't also be a key to drain the agent's wallet.
+
+For endpoints that need an authenticated principal (compliance reports for a specific employer, payroll execution against a specific treasury), Remlo layers a Privy JWT on top of the payment proof. The payment is the toll; the JWT is the identity. Both are required.

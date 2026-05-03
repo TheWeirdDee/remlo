@@ -1,15 +1,116 @@
 ---
-title: "MPP Overview"
-description: "Turn your system endpoints into autonomous, paid-per-use workflows."
+title: "MPP API Overview"
+description: "Pay per use endpoints accepting USDC on Tempo, Base, or Solana."
 ---
 
-The Machine Payment Protocol (MPP) allows developers to securely gate any Remlo functionality behind micro-transactions. By paying nominal sums per API call (or per open session), bots, agents, and other third-party services can interact with Remlo's underlying logic.
+The MPP API is Remlo's pay per use surface. Every endpoint declares a price in USD and a list of supported chains. Agents pay in USDC on whichever chain their wallet has balance on, and the server returns the response.
 
-### Why MPP?
-Traditional API keys are static. If leaked, they provide unbound continuous access. MPP shifts the paradigm by introducing verifiable 402 HTTP flows powered by on-chain stablecoins on the Tempo network.
-Every request guarantees payment first, drastically altering the incentive structures around abuse, rate-limiting, and scaling.
+## Why pay per call
 
-### Core Philosophy
-- Keep execution lightweight and fully auditable by issuing a signed receipt per action.
-- Every endpoint explicitly declares its cost and whether it handles a single charge or requires an open session channel.
-- Real-time execution is decoupled from monthly SaaS plans, shifting usage from fixed predictable costs to entirely variable, on-demand execution logic.
+Static API keys leak. Once stolen, they grant unbounded continuous access until rotated. Pay per call inverts the failure mode: each request costs USDC up front, so a leaked credential drains the agent's wallet, not Remlo's revenue. Rate limiting becomes a market function, abuse becomes economically irrational, and pricing becomes precise per action rather than per month.
+
+## How it works
+
+The first request to a paid endpoint returns HTTP 402 Payment Required. The response body lists every accepted payment option in `accepts`. The `WWW-Authenticate` header carries an mpp protocol challenge for Tempo. The agent picks one option, signs the corresponding payment proof, and retries the same URL with the proof attached as a header. The server verifies, runs the handler, and returns the response.
+
+```http
+GET /api/mpp/treasury/yield-rates HTTP/1.1
+Host: www.remlo.xyz
+
+HTTP/1.1 402 Payment Required
+WWW-Authenticate: mpp realm="www.remlo.xyz", method="tempo", chainId="4217",
+                      currency="0x20C00000...", recipient="0xC9231...",
+                      amount="0.01"
+Content-Type: application/json
+
+{
+  "x402Version": 2,
+  "resource": { "url": "https://www.remlo.xyz/api/mpp/treasury/yield-rates" },
+  "accepts": [
+    {
+      "scheme": "exact",
+      "network": "eip155:8453",
+      "asset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+      "amount": "10000",
+      "payTo": "0xC9231...",
+      "maxTimeoutSeconds": 60
+    },
+    {
+      "scheme": "exact",
+      "network": "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
+      "asset": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+      "amount": "10000",
+      "payTo": "BxoTaz3...",
+      "maxTimeoutSeconds": 60
+    }
+  ]
+}
+```
+
+The agent picks Tempo (mpp protocol) by retrying with `Authorization: mpp <credential>`, or Base / Solana (x402 protocol) by retrying with `X-PAYMENT: <base64 payload>`. Server dispatches based on which header is present.
+
+## Rails and protocols
+
+| Chain | Protocol | Stablecoin | Facilitator |
+|---|---|---|---|
+| Tempo Moderato | `mpp` | USDC.e at `0x20C0...` | mppx embedded (Tempo's own) |
+| Base mainnet | `x402` | USDC at `0x8335...` | CDP at `api.cdp.coinbase.com` |
+| Solana mainnet | `x402` | USDC at `EPjF...` | CDP at `api.cdp.coinbase.com` |
+
+`amount` in `accepts` is in atomic units (USDC has 6 decimals, so `10000` means $0.01). `payTo` is an EOA on each rail. State mutating endpoints that touch Tempo treasury balances (payroll execute, fiat off-ramp) accept Tempo only.
+
+## Endpoint catalogue
+
+### Multi rail (Tempo + Base + Solana)
+
+| Endpoint | Method | Price | What it does |
+|---|---|---|---|
+| `/api/mpp/treasury/yield-rates` | GET | $0.01 | Current APY, sources, allocation |
+| `/api/mpp/compliance/check` | POST | $0.05 | Wallet check against TIP-403 policy |
+| `/api/mpp/memo/decode` | POST | $0.01 | Decode 32-byte ISO 20022 payroll memo |
+| `/api/mpp/escrow/post` | POST | $0.10 | Post escrow with auto validation |
+| `/api/mpp/escrow/deliver` | POST | $0.02 | Submit deliverable URI |
+| `/api/mpp/escrow/{id}/status` | GET | $0.01 | Read escrow lifecycle status |
+| `/api/mpp/agent/pay` | POST | $0.05 | Agent to agent direct payment |
+
+### Tempo only (state mutating)
+
+| Endpoint | Method | Price | Why Tempo only |
+|---|---|---|---|
+| `/api/mpp/payroll/execute` | POST | $1.00 | Writes to Tempo PayrollTreasury + PayrollBatcher |
+| `/api/mpp/bridge/offramp` | POST | $0.25 | Pulls from Tempo treasury, posts to Bridge |
+
+### Free reads
+
+| Endpoint | Method | Price | Notes |
+|---|---|---|---|
+| `/api/reputation/{address}` | GET | $0.00 | Cross-chain reputation aggregation |
+| `/openapi.json` | GET | $0.00 | OpenAPI spec |
+
+## Settlement model
+
+Verification runs synchronously before the handler. Settlement runs fire and forget after the handler responds, so handler latency is not extended by the facilitator round trip. If settlement fails post handler, the error is logged but the response that already went out stands. The agent's signed payment is on-chain regardless; settlement is the server claiming it.
+
+For Tempo, mppx attaches a `Payment-Receipt` header on the response when settlement is recorded. For Base / Solana, settlement happens out of band via the CDP facilitator and clients that need confirmation poll the facilitator with the payload they sent.
+
+## Discoverability
+
+Agents can browse the catalogue without paying:
+
+```bash
+curl https://www.remlo.xyz/openapi.json
+```
+
+Or use AgentCash's discovery tool:
+
+```bash
+npx -y agentcash@latest discover https://www.remlo.xyz
+```
+
+Both return the same endpoint metadata, prices, and accepted protocols.
+
+## Next
+
+- [Multi-Rail Payments](/docs/mpp-api/multi-rail) for the full payment flow with code samples.
+- [Authentication](/docs/mpp-api/authentication) for header formats and signature construction.
+- Endpoint reference pages under this same group for per route schemas.

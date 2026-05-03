@@ -90,12 +90,17 @@ export interface Database {
           bridge_customer_id: string | null
           bridge_card_id: string | null
           bridge_bank_account_id: string | null
+          bridge_kyc_link_id: string | null
           kyc_status: string
           kyc_verified_at: string | null
           stream_contract: string | null
           active: boolean
           invited_at: string | null
           onboarded_at: string | null
+          invite_token_hash: string | null
+          invite_token_expires_at: string | null
+          invite_claimed_at: string | null
+          kyc_token_hash: string | null
           created_at: string
           updated_at: string
         }
@@ -119,12 +124,17 @@ export interface Database {
           bridge_customer_id?: string | null
           bridge_card_id?: string | null
           bridge_bank_account_id?: string | null
+          bridge_kyc_link_id?: string | null
           kyc_status?: string
           kyc_verified_at?: string | null
           stream_contract?: string | null
           active?: boolean
           invited_at?: string | null
           onboarded_at?: string | null
+          invite_token_hash?: string | null
+          invite_token_expires_at?: string | null
+          invite_claimed_at?: string | null
+          kyc_token_hash?: string | null
           created_at?: string
           updated_at?: string
         }
@@ -148,12 +158,17 @@ export interface Database {
           bridge_customer_id?: string | null
           bridge_card_id?: string | null
           bridge_bank_account_id?: string | null
+          bridge_kyc_link_id?: string | null
           kyc_status?: string
           kyc_verified_at?: string | null
           stream_contract?: string | null
           active?: boolean
           invited_at?: string | null
           onboarded_at?: string | null
+          invite_token_hash?: string | null
+          invite_token_expires_at?: string | null
+          invite_claimed_at?: string | null
+          kyc_token_hash?: string | null
           created_at?: string
           updated_at?: string
         }
@@ -260,6 +275,105 @@ export interface Database {
           chain?: string
           solana_signature?: string | null
           policy_rejection_reason?: string | null
+          created_at?: string
+        }
+        Relationships: []
+      }
+      email_events: {
+        Row: {
+          id: string
+          provider_event_id: string | null
+          provider_message_id: string | null
+          event_type: string
+          recipient: string
+          template: string | null
+          employer_id: string | null
+          tags: Json | null
+          raw: Json | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          provider_event_id?: string | null
+          provider_message_id?: string | null
+          event_type: string
+          recipient: string
+          template?: string | null
+          employer_id?: string | null
+          tags?: Json | null
+          raw?: Json | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          provider_event_id?: string | null
+          provider_message_id?: string | null
+          event_type?: string
+          recipient?: string
+          template?: string | null
+          employer_id?: string | null
+          tags?: Json | null
+          raw?: Json | null
+          created_at?: string
+        }
+        Relationships: []
+      }
+      email_suppressions: {
+        Row: {
+          email: string
+          reason: string
+          source_event_id: string | null
+          created_at: string
+        }
+        Insert: {
+          email: string
+          reason: string
+          source_event_id?: string | null
+          created_at?: string
+        }
+        Update: {
+          email?: string
+          reason?: string
+          source_event_id?: string | null
+          created_at?: string
+        }
+        Relationships: []
+      }
+      notifications: {
+        Row: {
+          id: string
+          employer_id: string
+          kind: string
+          title: string
+          body: string | null
+          severity: string
+          link: string | null
+          metadata: Json | null
+          read_at: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          employer_id: string
+          kind: string
+          title: string
+          body?: string | null
+          severity?: string
+          link?: string | null
+          metadata?: Json | null
+          read_at?: string | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          employer_id?: string
+          kind?: string
+          title?: string
+          body?: string | null
+          severity?: string
+          link?: string | null
+          metadata?: Json | null
+          read_at?: string | null
           created_at?: string
         }
         Relationships: []
@@ -395,6 +509,8 @@ export interface Database {
           active: boolean
           created_at: string
           revoked_at: string | null
+          signing_secret: string | null
+          signing_secret_rotated_at: string | null
         }
         Insert: {
           id?: string
@@ -406,6 +522,8 @@ export interface Database {
           active?: boolean
           created_at?: string
           revoked_at?: string | null
+          signing_secret?: string | null
+          signing_secret_rotated_at?: string | null
         }
         Update: {
           id?: string
@@ -417,6 +535,53 @@ export interface Database {
           active?: boolean
           created_at?: string
           revoked_at?: string | null
+          signing_secret?: string | null
+          signing_secret_rotated_at?: string | null
+        }
+        Relationships: []
+      }
+      webhook_events: {
+        Row: {
+          source: string
+          external_id: string
+          received_at: string
+          event_type: string | null
+        }
+        Insert: {
+          source: string
+          external_id: string
+          received_at?: string
+          event_type?: string | null
+        }
+        Update: {
+          source?: string
+          external_id?: string
+          received_at?: string
+          event_type?: string | null
+        }
+        Relationships: []
+      }
+      invite_attempts: {
+        Row: {
+          id: number
+          ip_hash: string
+          token_hash: string | null
+          success: boolean
+          attempted_at: string
+        }
+        Insert: {
+          id?: number
+          ip_hash: string
+          token_hash?: string | null
+          success?: boolean
+          attempted_at?: string
+        }
+        Update: {
+          id?: number
+          ip_hash?: string
+          token_hash?: string | null
+          success?: boolean
+          attempted_at?: string
         }
         Relationships: []
       }

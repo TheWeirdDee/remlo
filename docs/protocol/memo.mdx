@@ -1,46 +1,72 @@
 ---
-title: "Memo and Compliance Model"
-description: "Understand the TIP-20 memos encoding process and the TIP-403 compliance screening architecture."
+title: "Memo and Compliance"
+description: "32-byte ISO 20022 memos and TIP-403 policy enforcement."
 ---
 
-Remlo uses the TIP-20 memo standard native to the Tempo network to encode exhaustive payment details directly into on-chain transactions.
+Every payment Remlo broadcasts on Tempo carries a 32-byte memo encoded in the TIP-20 format. The memo binds an on-chain transfer to a specific employer, employee, pay period, cost center, and accounting record. Compliance and indexing pipelines read it without parsing tx logs.
 
-This architecture ensures total data integrity across the entire payroll lifecycle. Furthermore, the TIP-403 standard automatically screens transactions on a foundational protocol level to maintain incredibly strict global compliance standards.
+## 32-byte structure
 
-```mermaid
-sequenceDiagram
-    participant TX as On-Chain Transaction
-    participant TIP20 as TIP-20 Memo Parser
-    participant TIP403 as Compliance Oracle
-    
-    TX->>TIP20: Embed 32-byte Metadata
-    TX->>TIP403: Check Recipient Sanctions
-    TIP403-->>TX: CLEAR
-    TX->>TX: Complete Transfer
+| Bytes | Purpose | Description |
+|---|---|---|
+| 0–3 | Message type | 4 ASCII chars. `paic` (`0x70616963`) for pain.001 payroll, `ybnu` for yield bonus, etc. |
+| 4–11 | Employer ID | First 8 bytes of the employer UUID (hyphens stripped, hex-decoded) |
+| 12–19 | Employee ID | First 8 bytes of the employee UUID |
+| 20–23 | Pay period | Packed big-endian uint32. Layout: `(year << 16) \| (month << 8) \| day` |
+| 24–27 | Cost center | Big-endian uint32. Internal accounting code, defaults to `0` |
+| 28–31 | Record hash | First 4 bytes of SHA-256 over the off-chain payroll record |
+
+The encoder lives at `lib/memo.ts`. Encoding is pure (no async, no DB). Decoding inverts the same layout. The off-chain DB stores `memo_bytes` as Postgres `bytea` so memo bytes round-trip without lossy text encoding.
+
+For a payment in the pain.001 message type:
+
+```
+0x70616963        // "paic"
+0123456789abcdef  // employer ID prefix
+fedcba9876543210  // employee ID prefix
+07f60301          // pay period 2026-03-01
+00000000          // cost center 0
+deadbeef          // record hash
 ```
 
-## TIP-20 Memo Encoding Format
+## What the memo is for
 
-Every transfer triggered by a Remlo workflow includes a strict 32-byte memo that adheres structurally to the ISO 20022 banking format. Embedding this data makes on-chain transactions effortlessly machine-readable by accounting software and immediately auditable by corporate compliance teams without risking drift.
+**Compliance pipelines** index payments by `(employerId, employeeId, payPeriod)` to produce monthly reports without needing to maintain a separate off-chain ledger. The on-chain log is the source of truth.
 
-### The 32-Byte Structure
+**Treasury reconciliation** uses the record hash to confirm that a settled on-chain transfer matches the payroll run row in Supabase. A mismatch means a disagreement between intent and execution; the dashboard surfaces this as a yellow status badge.
 
-| Memory Block | Purpose | Description and Example Input |
-|---|---|---|
-| **0-3** | Message Type | Standard initialization identifier `0x70616963` (pain.001) |
-| **4-11** | Employer ID | Truncated 8-byte hash representing the corporate entity |
-| **12-19** | Employee ID | Truncated 8-byte hash representing the recipient profile |
-| **20-23** | Pay Period | The execution date formatted as `YYYYMMDD` packed (e.g., `0x07F60301`) |
-| **24-27** | Cost Center | The company's internal fiscal budget allocation code |
-| **28-31** | Record Hash | Truncated SHA-256 securing the full underlying structural payroll record |
+**Audit trails** for jurisdictions that require structured payment metadata get a deterministic, machine-readable artifact attached to every transfer at the protocol level.
 
-*Need to decipher a payload automatically? Developers can utilize the `/api/mpp/memo/decode` endpoint to parse raw memo strings into standard JSON objects programmatically.*
+## Decoding a memo
 
-## TIP-403 Compliance Policies
+Agents and indexers can decode memos via the MPP API:
 
-Global enterprise payroll must respect strict jurisdictional boundaries. Consequently, every Remlo transfer is automatically screened by the `TIP403Registry` precompile on execution.
+```bash
+curl -X POST https://www.remlo.xyz/api/mpp/memo/decode \
+  -H "X-PAYMENT: <base64 payment proof>" \
+  -H "Content-Type: application/json" \
+  -d '{"memo": "0x706169630123456789abcdef..."}'
+```
 
-Instead of running these sanctions screens lazily off-chain, the precompile embeds the logic. This mechanism absolutely guarantees that corporate funds can never touch a globally sanctioned or illicit wallet address without reverting.
+Returns:
 
-- **BLACKLIST Default Policy**: This forms the foundational compliance net, blocking any routing address currently flagged by the network's global compliance oracle. If a wallet hits a recognized AM/KYC snag, the attempted execution directly reverts throwing an on-chain error.
-- **Enforced Employee Onboarding**: The registry oracle check is also executed immediately at the time of employee registration. An employee's connected wallet must secure a clear bill of health to be assigned back to the Employer's active payroll roster inside the underlying database schema.
+```json
+{
+  "messageType": "paic",
+  "employerId": "0123456789abcdef",
+  "employeeId": "fedcba9876543210",
+  "payPeriod": "2026-03-01",
+  "costCenter": 0,
+  "recordHash": "deadbeef"
+}
+```
+
+Multi-rail $0.01. See [Memo Decode](/docs/mpp-api/memo-decode).
+
+## TIP-403 compliance policies
+
+Tempo's TIP-403 standard exposes a precompile-style registry that maps `(policyId, wallet)` to `bool authorized`. Remlo's `EmployeeRegistry` reads this registry when an employer registers a new employee under a policy ID, and reverts the registration if the wallet isn't cleared.
+
+Most demo employers default to `policyId = 0`, which skips the check. Production employers in regulated jurisdictions bind a real policy ID and use the registry as a sanctions filter at registration time, not at every payment.
+
+The policy enforcement runs at the `EmployeeRegistry` layer (registration), not at the `PayrollBatcher` layer (payment), because the same wallet shouldn't have to re-prove sanctions clearance on every payroll run. Policy state can change (a wallet gets sanctioned mid-employment). When that happens, the registry returns false, the dashboard shows the employee as `kyc_status = blocked`, and `PayrollBatcher`'s optional H-4 path catches it via `EmployeeRegistry.isEmployedBy` (which combines active state and employer membership).

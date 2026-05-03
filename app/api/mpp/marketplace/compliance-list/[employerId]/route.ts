@@ -1,12 +1,15 @@
 import { NextRequest } from 'next/server'
 import { mppx } from '@/lib/mpp'
 import { getComplianceEventsByEmployerId } from '@/lib/queries/compliance'
+import { getMppCallerEmployer } from '@/lib/mpp-auth'
 
 /**
  * GET /api/mpp/marketplace/compliance-list/[employerId]
  * MPP-11 — $0.50 single charge
- * Returns a paid allowlist of recently cleared wallets for an employer.
- * Useful for auditors, marketplace buyers, and compliance officers.
+ * Returns the compliance-cleared wallet list for the caller's OWN employer.
+ *
+ * SECURITY: previously returned arbitrary employers' employee wallet lists to
+ * any MPP client. Now scoped to the authenticated caller (audit C-11).
  *
  * Query params: ?limit=100
  */
@@ -19,6 +22,14 @@ export async function GET(
   const limit = Math.min(500, parseInt(url.searchParams.get('limit') ?? '100', 10))
 
   return mppx.charge({ amount: '0.50' })(async () => {
+    const caller = await getMppCallerEmployer(req)
+    if (!caller) {
+      return Response.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+    if (caller.id !== employerId) {
+      return Response.json({ error: 'Forbidden' }, { status: 403 })
+    }
+
     const events = await getComplianceEventsByEmployerId(employerId, limit)
     const latestClearByWallet = new Map<string, (typeof events)[number]>()
 

@@ -6,11 +6,11 @@ export const metadata = { title: 'Press | Remlo' }
 const PRESS_ITEMS = [
   {
     label: 'Company boilerplate',
-    detail: 'Remlo is borderless enterprise payroll on Tempo L1 with Bridge fiat rails, embedded wallets, and machine payment APIs (MPP).',
+    detail: 'Remlo is the payroll, agent payment, and reputation protocol for borderless work. Companies pay teams in stablecoins on Tempo or Solana. Agents pay our APIs in USDC on Tempo, Base, or Solana. Every settled payment writes portable on-chain reputation.',
   },
   {
     label: 'Key proof points',
-    detail: 'Instant settlement, TIP-20 ISO 20022 memos, TIP-403 compliance, StreamVesting salary accrual, and Bridge-issued Visa cards.',
+    detail: 'Sub-second Tempo settlement, multi-rail x402 agent payments across three chains, three-party Solana escrow with LLM-judged settlement, ERC-8004 + SAS dual-chain reputation, ISO 20022 memos, TIP-403 compliance, StreamVesting salary accrual, Bridge fiat on-ramp and Visa cards.',
   },
   {
     label: 'Press contact',
@@ -45,7 +45,7 @@ export default function PressPage() {
             <h2 className="text-xl font-semibold text-[var(--text-primary)]">Demo summary</h2>
           </div>
           <p className="mt-4 text-sm leading-7 text-[var(--text-secondary)]">
-            The live Remlo demo shows an employer funding treasury, preparing payroll, executing on Tempo, and an employee receiving funds, viewing decoded memo data, and moving money to spend or off-ramp.
+            The live Remlo demo walks through three flows: a Tempo payroll run settling in under a second with itemized payouts, a three-party Solana escrow resolving under Claude-judged consensus, and an external autonomous agent paying our compliance API in USDC on Solana. Each flow writes corresponding on-chain reputation that&apos;s queryable for free.
           </p>
           <a
             href="/contact"

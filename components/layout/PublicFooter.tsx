@@ -120,15 +120,31 @@ export function PublicFooter() {
                 rel="noopener noreferrer"
                 className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-1 text-[11px] font-medium uppercase tracking-[0.14em] text-white/45 transition-colors hover:border-white/20 hover:text-white/70"
               >
-                Built on Tempo
+                Tempo
               </a>
               <a
-                href="https://stripe.com/bridge"
+                href="https://solana.com"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-1 text-[11px] font-medium uppercase tracking-[0.14em] text-white/45 transition-colors hover:border-white/20 hover:text-white/70"
               >
-                Stripe Bridge
+                Solana
+              </a>
+              <a
+                href="https://base.org"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-1 text-[11px] font-medium uppercase tracking-[0.14em] text-white/45 transition-colors hover:border-white/20 hover:text-white/70"
+              >
+                Base
+              </a>
+              <a
+                href="https://bridge.xyz"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-1 text-[11px] font-medium uppercase tracking-[0.14em] text-white/45 transition-colors hover:border-white/20 hover:text-white/70"
+              >
+                Bridge
               </a>
             </div>
           </div>

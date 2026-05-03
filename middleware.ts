@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { verifyPrivyToken } from '@/lib/jwt'
 
 // ─── Bot / social crawler detection ───────────────────────────────────────────
 
@@ -44,6 +45,7 @@ const PUBLIC_PREFIXES = [
   '/legal/',
   '/_next/',
   '/api/webhooks/', // Bridge + Tempo webhooks must be unauthenticated
+  '/api/cron/', // Cron handlers do their own timing-safe CRON_SECRET check; Vercel Cron has no cookie
   '/api/openapi.json', // OpenAPI discovery doc must be publicly accessible for MPPscan
   '/.well-known/', // x402 payment discovery
   '/api/mpp/', // MPP endpoints are pay-per-call — payment header is the auth
@@ -69,29 +71,6 @@ function isAuthRoute(pathname: string): boolean {
   return AUTH_ROUTES.some((p) => pathname === p)
 }
 
-// ─── JWT decode (edge-safe, no crypto verify) ─────────────────────────────────
-
-/**
- * Decode Privy JWT payload without signature verification.
- * Edge runtime cannot run the full crypto verify — verification
- * happens in individual API routes that need security guarantees.
- * Here we only need the user DID for role-based routing.
- */
-function decodePrivyToken(token: string): { sub: string } | null {
-  try {
-    const [, payload] = token.split('.')
-    if (!payload) return null
-    const base64 = payload.replace(/-/g, '+').replace(/_/g, '/')
-    const padded = base64.padEnd(base64.length + ((4 - (base64.length % 4)) % 4), '=')
-    const decoded = JSON.parse(atob(padded)) as { sub?: string; exp?: number }
-    if (!decoded.sub) return null
-    if (decoded.exp && decoded.exp * 1000 < Date.now()) return null
-    return { sub: decoded.sub }
-  } catch {
-    return null
-  }
-}
-
 // ─── Role resolution ──────────────────────────────────────────────────────────
 
 type Role = 'employer' | 'employee' | 'platform_admin' | null
@@ -107,7 +86,7 @@ async function getUserRole(userId: string): Promise<Role> {
   if (!supabaseUrl || !supabaseKey) return null
 
   const adminIds = process.env.ADMIN_USER_IDS?.split(',').map((s) => s.trim()) ?? []
-  if (adminIds.includes(userId)) return 'platform_admin'
+  const isAdmin = adminIds.includes(userId)
 
   const headers = {
     apikey: supabaseKey,
@@ -132,11 +111,17 @@ async function getUserRole(userId: string): Promise<Role> {
       employeeRes.ok ? (employeeRes.json() as Promise<unknown[]>) : Promise.resolve([]),
     ])
 
+    // Prefer operational role (employer/employee) for routing — an admin who
+    // also runs an employer should land on their dashboard. Admin powers are
+    // additive and remain enforced separately by isPlatformAdminUserId on
+    // API routes; the middleware fix above also lets platform_admin pass
+    // through every section.
     if (Array.isArray(employers) && employers.length > 0) return 'employer'
     if (Array.isArray(employees) && employees.length > 0) return 'employee'
+    if (isAdmin) return 'platform_admin'
   } catch {
     // Supabase unreachable — fail open so we don't lock users out
-    return null
+    return isAdmin ? 'platform_admin' : null
   }
 
   return null
@@ -181,7 +166,7 @@ export async function middleware(request: NextRequest) {
       const privyToken =
         request.cookies.get('privy-token')?.value ??
         request.cookies.get('privy_token')?.value
-      const decoded = privyToken ? decodePrivyToken(privyToken) : null
+      const decoded = privyToken ? await verifyPrivyToken(privyToken) : null
       if (decoded) {
         const role = await getUserRole(decoded.sub)
         if (role) {
@@ -195,23 +180,43 @@ export async function middleware(request: NextRequest) {
   }
 
   // All remaining paths are protected. Resolve authentication.
+  // Note: API routes also have their own auth via lib/auth.ts using the
+  // Authorization: Bearer header (not cookies). Middleware here is a
+  // best-effort cookie-based gate for browser navigations; the route
+  // handlers are the actual security boundary.
   const privyToken =
     request.cookies.get('privy-token')?.value ??
     request.cookies.get('privy_token')?.value
-  const decoded = privyToken ? decodePrivyToken(privyToken) : null
+  const decoded = privyToken ? await verifyPrivyToken(privyToken) : null
 
   if (!decoded) {
+    // For API routes: let the request through so the route handler can
+    // return its own JSON 401 via getPrivyClaims (which reads the
+    // Authorization header, not cookies). Redirecting to /login would
+    // emit HTML, which API consumers cannot parse.
+    if (pathname.startsWith('/api/')) {
+      return NextResponse.next()
+    }
     const loginUrl = request.nextUrl.clone()
     loginUrl.pathname = '/login'
     return NextResponse.redirect(loginUrl)
   }
 
-  // Role-gated sections
+  // Role-gated sections.
+  // Platform admins can access every section (operational oversight + can
+  // also wear an employer hat). Employer/employee roles are restricted to
+  // their own section.
   if (
     pathname.startsWith('/dashboard') ||
     pathname.startsWith('/portal') ||
     pathname.startsWith('/admin')
   ) {
+    const adminIds = process.env.ADMIN_USER_IDS?.split(',').map((s) => s.trim()) ?? []
+    const isAdmin = adminIds.includes(decoded.sub)
+
+    // Admins pass through every section.
+    if (isAdmin) return NextResponse.next()
+
     const role = await getUserRole(decoded.sub)
 
     if (pathname.startsWith('/dashboard') && role !== 'employer') {
@@ -226,7 +231,8 @@ export async function middleware(request: NextRequest) {
       return NextResponse.redirect(redirect)
     }
 
-    if (pathname.startsWith('/admin') && role !== 'platform_admin') {
+    if (pathname.startsWith('/admin')) {
+      // Non-admin trying to reach /admin — redirect to their home.
       const redirect = request.nextUrl.clone()
       redirect.pathname = roleHome(role)
       return NextResponse.redirect(redirect)

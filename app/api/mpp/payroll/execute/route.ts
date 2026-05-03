@@ -5,6 +5,7 @@ import { getEmployerById } from '@/lib/queries/employers'
 import { createServerClient } from '@/lib/supabase-server'
 import { byteaMemoToHex } from '@/lib/memo'
 import { getEmployerOnchainIdentity, getEmployerOnchainIdentityError } from '@/lib/employer-onchain'
+import { getMppCallerEmployer } from '@/lib/mpp-auth'
 
 const DEPLOYER_KEY = process.env.REMLO_AGENT_PRIVATE_KEY as `0x${string}`
 
@@ -16,6 +17,15 @@ const DEPLOYER_KEY = process.env.REMLO_AGENT_PRIVATE_KEY as `0x${string}`
  * Body: { payrollRunId: string }
  */
 export const POST = mppx.charge({ amount: '1.00' })(async (req: Request) => {
+  // SECURITY: x402 payment alone does not prove identity. The caller must
+  // also present a verified Privy JWT that matches the payroll run's
+  // employer owner. This blocks the "any attacker with $1 can execute any
+  // employer's payroll" bypass (audit finding C-2).
+  const caller = await getMppCallerEmployer(req)
+  if (!caller) {
+    return Response.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
   const { payrollRunId } = await req.json() as { payrollRunId: string }
 
   if (!payrollRunId) {
@@ -25,6 +35,9 @@ export const POST = mppx.charge({ amount: '1.00' })(async (req: Request) => {
   const run = await getPayrollRunById(payrollRunId)
   if (!run) {
     return Response.json({ error: 'Payroll run not found' }, { status: 404 })
+  }
+  if (run.employer_id !== caller.id) {
+    return Response.json({ error: 'Forbidden' }, { status: 403 })
   }
   if (run.status !== 'pending') {
     return Response.json({ error: `Payroll run is ${run.status}, not pending` }, { status: 409 })

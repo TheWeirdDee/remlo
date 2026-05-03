@@ -1,25 +1,57 @@
 ---
 title: "Quickstart"
-description: "Start running compliant payroll with Remlo."
+description: "Pick the path that fits and start in five minutes."
 ---
 
-Whether you are an employer looking to manage your team's salary, an operator configuring an AI agent, or a developer building a custom integration, Remlo provides the tools you need. Choose the path that fits your use case.
+Four ways to use Remlo. Pick whichever matches what you're building.
 
-### 1. "I want to run payroll from my dashboard"
-If you prefer a visual interface, you can manage everything through the Remlo Employer Dashboard.
-1. Register your company on the [Remlo App](https://remlo.xyz).
-2. Add your employees to your team directory.
-3. Deposit funds into your treasury via the Bridge virtual account integration.
-4. Run the payroll wizard to execute a compliant batch payout.
+## I want to run payroll for my company
 
-### 2. "I want an agent to run payroll autonomously"
-Use AgentCash to authorize an AI agent to manage your treasury and execute payroll on your behalf.
-1. Set up AgentCash by running `npx agentcash try https://remlo.xyz`.
-2. Fund the agent's wallet with the required stablecoin balance for API gas fees.
-3. The agent can now securely interact with Remlo by calling the `/api/mpp/agent/session/treasury` endpoint.
+The fastest path. No code.
 
-### 3. "I want to call the API directly"
-Build custom workflows or integrations by calling the MPP API endpoints.
-1. Obtain an MPP-compatible wallet to handle standard 402 HTTP payment flows.
-2. Review the [MPP API Reference](/docs/mpp-api/overview) and pick the endpoint you need.
-3. Send the request handling the 402 payment flow to execute the transaction and retrieve your data.
+1. Sign up at [remlo.xyz](https://remlo.xyz). Email or wallet login.
+2. Add your company name and admin wallet address. The dashboard creates an on-chain employer account in `EmployeeRegistry`.
+3. Fund your treasury: deposit pathUSD on Tempo via the dashboard's on-chain deposit widget, or send SPL USDC to the Solana wallet shown in your treasury page.
+4. Add employees. They receive a branded invite email with a Bridge KYC link. Once verified, they're payroll ready.
+5. Click "Run Payroll". Pick chain (Tempo or Solana), select employees, set amounts, review, execute. Tempo payroll lands in under a second; Solana lands within 1-2 seconds.
+
+You can also schedule recurring payroll, run agent-driven payroll plans, and route idle treasury balance through `YieldRouter`.
+
+## I want my agent to call Remlo's APIs
+
+Remlo's MPP and x402 endpoints accept payment in USDC on Tempo, Base, or Solana. Use AgentCash for the easiest setup.
+
+1. Install AgentCash. `npx -y agentcash@latest onboard` provisions a wallet on every supported chain.
+2. Fund the chain you want to pay from. The deposit link printed by `agentcash list_accounts` opens the right faucet or on-ramp.
+3. Discover Remlo's endpoints: `npx -y agentcash@latest discover https://www.remlo.xyz`.
+4. Call any endpoint: `npx -y agentcash@latest fetch https://www.remlo.xyz/api/mpp/treasury/yield-rates`. AgentCash handles the 402 challenge, signs the payment proof, and retries automatically.
+
+If you're not using AgentCash, use the `@x402/core` + `@x402/evm` + `@x402/svm` packages directly, or build your own client following the [Authentication](/docs/mpp-api/authentication) guide.
+
+## I want to integrate Remlo into a custom app
+
+You're building something that uses payroll, escrow, or reputation as a building block.
+
+1. Read the [MPP API Overview](/docs/mpp-api/overview) for the full endpoint catalogue and pricing.
+2. Read [Multi-Rail Payments](/docs/mpp-api/multi-rail) for the canonical payment flow with code samples.
+3. Pick the endpoints you need. Most reads are $0.01-$0.05; agent-to-agent payments are $0.05; payroll execution is $1.00.
+4. Implement the 402 retry loop or use a library that does it for you. The `@x402/core` SDK works in Node, browser, and Cloudflare Workers.
+
+For deeper integration (running your own escrow validators, reading the SAS or ERC-8004 reputation registries directly, deploying your own version of the contracts), see the [Architecture](/docs/architecture) page and the per contract reference under On-Chain.
+
+## I want to run Remlo on my own infrastructure
+
+Remlo is open source under MIT.
+
+1. Clone the repo. `git clone https://github.com/winsznx/remlo`.
+2. Install dependencies. `pnpm install`.
+3. Set up the prerequisites:
+   - A Privy app (email + SMS + wallet login enabled).
+   - A Supabase project; apply every migration under `db/migrations/`.
+   - An Anthropic API key for the AI agent and validators.
+   - A Bridge sandbox key for KYC links (optional but employee onboarding stalls without it).
+   - A Resend account for transactional email.
+4. Copy `.env.local.example` to `.env.local` and fill in the values. See [Environment Variables](/docs/operations/environment-variables) for the full list.
+5. Run `pnpm dev`. The app boots at `http://localhost:3000`.
+
+If you want to deploy your own contract instances, see [Contract Deployment](/docs/operations/contract-deployment). If you just want to point at the existing live deployments, the addresses are in [Contracts](/docs/protocol/contracts).

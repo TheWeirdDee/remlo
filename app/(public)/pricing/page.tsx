@@ -69,26 +69,52 @@ export default function PricingPage() {
       <div className="rounded-2xl border border-[var(--border-default)] bg-[var(--bg-overlay)] p-8">
         <div className="flex items-center gap-3 mb-6">
           <Info className="h-5 w-5 text-[var(--accent)]" />
-          <h2 className="text-xl font-bold text-[var(--text-primary)]">MPP: Pay-Per-Call Infrastructure</h2>
+          <h2 className="text-xl font-bold text-[var(--text-primary)]">Pay per call. Pay on any chain.</h2>
         </div>
         <p className="text-[var(--text-secondary)] mb-8">
-          AI agents and developers can access our on-chain infrastructure directly via our Micro-Payment Protocol (MPP). No subscription required.
+          Agents and developers access Remlo&apos;s on-chain infrastructure via HTTP 402 micro-payments. No subscription required. Most paid endpoints accept USDC on Tempo, Base, or Solana in parallel. Your wallet picks whichever chain has balance; the server verifies via the right facilitator and runs the handler.
         </p>
-        <div className="grid sm:grid-cols-3 gap-6">
+        <div className="grid sm:grid-cols-3 gap-6 mb-8">
           <div className="space-y-1">
-            <p className="text-xs text-[var(--text-muted)] uppercase tracking-widest font-bold">Standard Read</p>
+            <p className="text-xs text-[var(--text-muted)] uppercase tracking-widest font-bold">Read or query</p>
             <p className="text-[var(--text-primary)] font-mono font-bold">$0.01</p>
+            <p className="text-xs text-[var(--text-muted)]">Yield rates, memo decode, escrow status</p>
           </div>
           <div className="space-y-1">
-            <p className="text-xs text-[var(--text-muted)] uppercase tracking-widest font-bold">Standard Write</p>
-            <p className="text-[var(--text-primary)] font-mono font-bold">$0.05</p>
+            <p className="text-xs text-[var(--text-muted)] uppercase tracking-widest font-bold">Action</p>
+            <p className="text-[var(--text-primary)] font-mono font-bold">$0.02 to $0.10</p>
+            <p className="text-xs text-[var(--text-muted)]">Compliance check, escrow post / deliver, agent pay</p>
           </div>
           <div className="space-y-1">
-            <p className="text-xs text-[var(--text-muted)] uppercase tracking-widest font-bold">Complex Execution</p>
-            <p className="text-[var(--text-primary)] font-mono font-bold">$1.00</p>
+            <p className="text-xs text-[var(--text-muted)] uppercase tracking-widest font-bold">Heavy execution</p>
+            <p className="text-[var(--text-primary)] font-mono font-bold">$0.25 to $1.00</p>
+            <p className="text-xs text-[var(--text-muted)]">Full payroll run, fiat off-ramp</p>
           </div>
         </div>
+        <div className="grid sm:grid-cols-3 gap-3 border-t border-[var(--border-default)] pt-6">
+          <RailPill chain="Tempo" stable="USDC.e" protocol="mpp" />
+          <RailPill chain="Base" stable="USDC" protocol="x402" />
+          <RailPill chain="Solana" stable="USDC" protocol="x402" />
+        </div>
       </div>
+
+      <p className="text-center text-xs text-[var(--text-muted)]">
+        Browse the full endpoint catalogue at <a href="https://www.remlo.xyz/openapi.json" className="text-[var(--accent)] hover:underline">openapi.json</a> or via <code className="font-mono">npx -y agentcash@latest discover https://www.remlo.xyz</code>.
+      </p>
+    </div>
+  )
+}
+
+function RailPill({ chain, stable, protocol }: { chain: string; stable: string; protocol: string }) {
+  return (
+    <div className="flex items-center justify-between gap-2 rounded-xl border border-[var(--border-default)] bg-[var(--bg-surface)] px-3 py-2 text-xs">
+      <div>
+        <span className="font-bold text-[var(--text-primary)]">{chain}</span>
+        <span className="text-[var(--text-muted)]"> · {stable}</span>
+      </div>
+      <span className="rounded-full border border-[var(--accent)]/20 bg-[var(--accent-subtle)] px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-[var(--accent)]">
+        {protocol}
+      </span>
     </div>
   )
 }

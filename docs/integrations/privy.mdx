@@ -1,14 +1,36 @@
 ---
-title: "Privy Integration"
-description: "Wallet authentication and employee onboarding."
+title: "Privy"
+description: "Auth, embedded wallets, and policy gated server signing."
 ---
 
-Remlo utilizes Privy to drastically reduce friction associated with self-custody wallet creation and management across the userbase.
+Privy provides three things to Remlo: user authentication (email, SMS, wallet), embedded wallets for users without their own self custody setup, and policy gated server wallets that sign on Remlo's behalf without exposing raw private keys.
 
-### Employer Context
-Employers create their company structures using seamless social links or email login processes. Privy abstracts the complex custodial signing logic underneath the dashboard hood, allowing administrators to push payroll boundaries securely without risking compromised seed phrases.
+## User authentication
 
-### Employee Context
-New employees invited into the Remlo ecosystem do not need to install browser extensions or rely on hardware wallets to receive their payroll. Claiming their profile and finishing KYC through the employee portal provisions an embedded software wallet through Privy securely tied to their credentials.
+The dashboard logs in with Privy. Configured login methods: email OTP, SMS OTP, and external EVM wallet via WalletConnect. Privy issues an ES256 JWT scoped to the user's DID; Remlo's middleware verifies it via Web Crypto on edge and Node.
 
-All signatures involving streaming claims or off-ramping executes natively within the embedded footprint.
+Verification is signature-checking, not signature-trusting. Earlier versions of the auth path decoded the JWT body without checking the signature; that was the largest blast radius bug found in the security audit and was the C-1 critical fix. The current `lib/jwt.ts` reads `PRIVY_VERIFICATION_KEY` (PEM SPKI), imports it via `crypto.subtle.importKey`, and verifies with `crypto.subtle.verify`. A forged token can't pass.
+
+## Embedded wallets
+
+Employees claim their invite, complete KYC, and Privy provisions a wallet during onboarding. The user signs with biometrics or a passkey; Privy holds the key shards, not the user's device. This means employees never see seed phrases and can't lose access by clearing browser storage.
+
+For Tempo and Solana, employee wallets are real on-chain addresses with full self custody. Remlo can't move funds out of an employee wallet. Only the employee can sign withdrawals.
+
+## Server wallets (the agent path)
+
+Remlo runs two Privy server wallets, one per chain:
+
+- **Solana server wallet** (`PRIVY_SOLANA_AGENT_WALLET_ID`). Policy gated to a whitelist of program IDs and instructions: System Program (transfers), Token Program + Token-2022 (SPL transfers), Streamflow (stream creation/cancellation), and `remlo_escrow` (only the `post_verdict` instruction).
+- **Tempo server wallet** (`PRIVY_TEMPO_AGENT_WALLET_ID`). Used today for ERC-8004 reputation writes. PayrollBatcher and StreamVesting still sign with the legacy `REMLO_AGENT_PRIVATE_KEY` EOA; migration to the Privy Tempo wallet is a Phase 2 plan after we validate Privy Tempo signing under load with the lower stakes ERC-8004 writes.
+
+The policy attachment is verified at signing time (`assertPrivyPolicyAttached`). If a deploy accidentally drops the policy, the signer fails closed instead of broadcasting an unconstrained transaction. This is audit fix H-12.
+
+## What this gives us
+
+The combination eliminates two classes of failure:
+
+1. **Lost employee keys.** With self custody seed phrases, every payroll-onboarded employee is one phone-loss away from losing access. With Privy embedded wallets, recovery happens through the same auth method (email OTP, passkey) that gates dashboard login.
+2. **Stolen Remlo keys.** With raw EOAs in environment variables, a compromised server can sign arbitrary transactions. With Privy server wallets, the policy is enforced inside Privy's infrastructure before signing. Even with full server compromise, the attacker can only invoke the whitelisted program / instruction combinations on the whitelisted chains.
+
+For state mutating treasury operations (PayrollBatcher today), the legacy EOA still signs because Privy server wallets on Tempo are newer than our payroll system. Migrating that signing path to the Privy Tempo wallet is a Phase 2 milestone after we validate the path under load with the lower stakes ERC-8004 writes.

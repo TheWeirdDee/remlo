@@ -1,14 +1,17 @@
-import { mppx } from '@/lib/mpp'
+import { multiRailCharge } from '@/lib/x402-multi-rail'
 import { postEscrow, publicEscrowView } from '@/lib/escrow'
 
 /**
  * POST /api/mpp/escrow/post
- * MPP-14 — $0.10 x402 charge.
+ * Multi-rail $0.10 — accepts Tempo (mpp) or Base / Solana (x402).
  *
  * Posts an escrow that will be auto-validated by Claude. Funds custodied by
  * the remlo_escrow Anchor program PDA during the escrow period.
  */
-export const POST = mppx.charge({ amount: '0.10' })(async (req: Request) => {
+export const POST = multiRailCharge({
+  amount: '0.10',
+  description: 'Post escrow with auto-validation',
+})(async (req: Request) => {
   const agentIdentifier = req.headers.get('x-agent-identifier')?.trim()
   if (!agentIdentifier) {
     return Response.json(

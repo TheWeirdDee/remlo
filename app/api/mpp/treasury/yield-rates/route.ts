@@ -1,12 +1,15 @@
-import { mppx } from '@/lib/mpp'
+import { multiRailCharge } from '@/lib/x402-multi-rail'
 import { yieldRouter } from '@/lib/contracts'
 
 /**
  * GET /api/mpp/treasury/yield-rates
- * MPP-1 — $0.01 single charge
+ * Multi-rail $0.01 — accepts Tempo (mpp) or Base / Solana (x402).
  * Returns current APY, yield sources, and allocation from YieldRouter contract.
  */
-export const GET = mppx.charge({ amount: '0.01' })(async () => {
+export const GET = multiRailCharge({
+  amount: '0.01',
+  description: 'Treasury yield rates',
+})(async () => {
   const [apy, sources, allocation] = await Promise.all([
     yieldRouter.read.getCurrentAPY() as Promise<bigint>,
     yieldRouter.read.getYieldSources() as Promise<string[]>,

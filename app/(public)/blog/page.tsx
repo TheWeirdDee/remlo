@@ -5,17 +5,17 @@ export const metadata = { title: 'Blog | Remlo' }
 const POSTS = [
   {
     category: 'Engineering',
-    title: 'The Future of AI-Native Payroll',
-    excerpt: 'How we built the world\'s first payroll infrastructure that AI agents can actually use autonomously.',
-    author: 'S. Mendez',
-    date: 'March 15, 2026',
+    title: 'Multi-rail x402 in production: Tempo, Base, and Solana in one 402 response',
+    excerpt: 'How we route a single API call to three different facilitators based on which protocol header the agent supplies, why state-mutating endpoints stay single-chain, and what the runtime 402 actually looks like.',
+    author: 'Engineering team',
+    date: 'May 3, 2026',
   },
   {
     category: 'Product',
-    title: 'Optimizing Global Settlement',
-    excerpt: 'Exploring the cost-benefits of stablecoin settlements vs. legacy banking rails in emerging markets.',
-    author: 'J. Okonkwo',
-    date: 'March 1, 2026',
+    title: 'Three primitives, two settlement chains',
+    excerpt: 'Why payroll, escrow, and reputation belong in one stack, and what changes when settled work writes portable on-chain credentials that other protocols can read.',
+    author: 'Product team',
+    date: 'April 21, 2026',
   },
 ]
 

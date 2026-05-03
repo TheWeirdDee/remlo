@@ -1,16 +1,19 @@
-import { mppx } from '@/lib/mpp'
+import { multiRailCharge } from '@/lib/x402-multi-rail'
 import { tip403Registry } from '@/lib/contracts'
 import { insertComplianceEvent } from '@/lib/queries/compliance'
 
 /**
  * POST /api/mpp/compliance/check
- * MPP-4 — $0.05 single charge
+ * Multi-rail $0.05 — accepts Tempo (mpp) or Base / Solana (x402).
  * Checks a wallet address against the TIP-403 compliance registry.
  * Inserts result into compliance_events table.
  *
  * Body: { walletAddress: string, policyId?: number, employerId?: string }
  */
-export const POST = mppx.charge({ amount: '0.05' })(async (req: Request) => {
+export const POST = multiRailCharge({
+  amount: '0.05',
+  description: 'Compliance screening',
+})(async (req: Request) => {
   const body = await req.json() as {
     walletAddress: string
     policyId?: number

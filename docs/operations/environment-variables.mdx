@@ -1,29 +1,109 @@
 ---
 title: "Environment Variables"
-description: "The complete server and application runtime configurations."
+description: "Server and client configuration for self-hosted deployments."
 ---
 
-Configure your Remlo integration across network execution, external ecosystem access, and cryptographic boundaries. **Never expose server-only variables to the client.**
+Remlo reads configuration from `.env.local` (development) and platform environment variables (Vercel, Cloudflare, etc.). Variables prefixed `NEXT_PUBLIC_` are exposed to the browser bundle. Everything else is server only and must never appear in client code.
 
-| Variable | Required | Description | Server-Only |
-|----------|----------|-------------|-------------|
-| `NEXT_PUBLIC_TEMPO_RPC` | Yes | The active Tempo Moderato Node URL (`https://rpc.moderato.tempo.xyz`). | No |
-| `NEXT_PUBLIC_TEMPO_CHAIN_ID` | Yes | The Tempo network ID (`42431`). | No |
-| `NEXT_PUBLIC_PRIVY_APP_ID` | Yes | The Privy client app ID. | No |
-| `NEXT_PUBLIC_SUPABASE_URL` | Yes | The REST endpoint URL for querying structured data. | No |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Yes | The public anon key for basic data ingestion. | No |
-| `NEXT_PUBLIC_PAYROLL_TREASURY` | Yes | The active `PayrollTreasury` deployed address on Moderato. | No |
-| `NEXT_PUBLIC_PAYROLL_BATCHER` | Yes | The active `PayrollBatcher` deployed address on Moderato. | No |
-| `NEXT_PUBLIC_EMPLOYEE_REGISTRY` | Yes | The active `EmployeeRegistry` deployed address on Moderato. | No |
-| `NEXT_PUBLIC_STREAM_VESTING` | Yes | The active `StreamVesting` deployed address on Moderato. | No |
-| `NEXT_PUBLIC_YIELD_ROUTER` | Yes | The active `YieldRouter` deployed address on Moderato. | No |
-| `NEXT_PUBLIC_APP_URL` | Yes | The absolute web client URI (`https://remlo.xyz`). | No |
-| `SUPABASE_SERVICE_KEY` | Yes | High-context Database management bypassing row level security policies. | **Yes** |
-| `BRIDGE_API_KEY` | Yes | The explicit Bridge identifier to generate and operate the API suite. | **Yes** |
-| `BRIDGE_WEBHOOK_SECRET` | Yes | Cryptographic RSA public signature verification from incoming data. | **Yes** |
-| `REMLO_TREASURY_ADDRESS` | Yes | Receiving wallet for all completed MPP fractional toll transactions. | **Yes** |
-| `REMLO_AGENT_PRIVATE_KEY` | No | Private spending key initializing internal platform-wide testing scripts. | **Yes** |
-| `RESEND_API_KEY` | Yes | Configuration to broadcast employee verification and payment receipt emails. | **Yes** |
-| `CLAUDE_API_KEY` | Yes | Access tier powering integrated data anomaly sweeps inside runs. | **Yes** |
-| `STRIPE_SECRET_KEY` | No | Secondary integration supporting external fiat-backed logic parsing. | **Yes** |
-| `MPP_SECRET_KEY` | Yes | Randomized 32-byte base64 secure key constructing MPP payload receipts. | **Yes** |
+## Public (client safe)
+
+| Variable | Required | Description |
+|---|---|---|
+| `NEXT_PUBLIC_TEMPO_RPC` | yes | Tempo Moderato JSON-RPC URL. Default: `https://rpc.moderato.tempo.xyz`. |
+| `NEXT_PUBLIC_TEMPO_CHAIN_ID` | yes | Tempo chain ID. `42431` for Moderato testnet, `4217` for mainnet. |
+| `NEXT_PUBLIC_PRIVY_APP_ID` | yes | Privy application ID. From the Privy dashboard. |
+| `NEXT_PUBLIC_SUPABASE_URL` | yes | Supabase project URL. |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | yes | Supabase anon key for browser queries (RLS protected). |
+| `NEXT_PUBLIC_PAYROLL_TREASURY` | yes | Tempo PayrollTreasury address. |
+| `NEXT_PUBLIC_PAYROLL_BATCHER` | yes | Tempo PayrollBatcher address. |
+| `NEXT_PUBLIC_EMPLOYEE_REGISTRY` | yes | Tempo EmployeeRegistry address. |
+| `NEXT_PUBLIC_STREAM_VESTING` | yes | Tempo StreamVesting address. |
+| `NEXT_PUBLIC_YIELD_ROUTER` | yes | Tempo YieldRouter address. |
+| `NEXT_PUBLIC_ERC8004_IDENTITY_REGISTRY` | yes | ERC-8004 IdentityRegistry address. |
+| `NEXT_PUBLIC_ERC8004_REPUTATION_REGISTRY` | yes | ERC-8004 ReputationRegistry address. |
+| `NEXT_PUBLIC_ERC8004_VALIDATION_REGISTRY` | yes | ERC-8004 ValidationRegistry address. |
+| `NEXT_PUBLIC_REMLO_PAYROLL_AGENT_ID` | yes | ERC-8004 agent ID (uint) for the Remlo payroll agent. |
+| `NEXT_PUBLIC_REMLO_VALIDATOR_AGENT_ID` | yes | ERC-8004 agent ID (uint) for the Remlo validator agent. |
+| `NEXT_PUBLIC_SOLANA_CLUSTER` | yes | `devnet` or `mainnet-beta`. Drives both RPC URL and SAS schema selection. |
+| `NEXT_PUBLIC_SOLANA_RPC_URL` | no | Overrides the default Solana cluster RPC. |
+| `NEXT_PUBLIC_APP_URL` | yes | Canonical app URL. Used for redirect URIs and ERC-8004 agent base URI. |
+| `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID` | no | Optional. Enables external wallet login via WalletConnect. |
+
+## Server (secret)
+
+### Database and auth
+
+| Variable | Required | Description |
+|---|---|---|
+| `SUPABASE_SERVICE_KEY` | yes | Service role key. Bypasses RLS. Server only. |
+| `PRIVY_APP_SECRET` | yes | Privy server secret for token verification and server wallet API access. |
+| `PRIVY_VERIFICATION_KEY` | yes | Privy verification key (PEM SPKI). Used by `lib/jwt.ts` to verify ES256 access tokens via Web Crypto on edge and Node. |
+| `PRIVY_AUTHORIZATION_KEY` | no | Optional. Used when calling Privy's wallet API with authorization signatures. |
+| `ADMIN_USER_IDS` | no | Comma separated list of Privy user DIDs that get platform admin access. |
+| `INVITE_IP_SALT` | yes | Random 32 byte hex string. Used to hash IPs for the `invite_attempts` rate limit table without storing raw IPs. |
+
+### On-chain signers
+
+| Variable | Required | Description |
+|---|---|---|
+| `REMLO_AGENT_PRIVATE_KEY` | yes | EVM private key for the Remlo agent EOA. Signs Tempo PayrollBatcher, StreamVesting, and ERC-8004 reputation writes. Migration to Privy server wallets is a Phase 2 plan. |
+| `PRIVY_SOLANA_AGENT_WALLET_ID` | yes | Privy server wallet ID for the Remlo Solana signer. Policy gated to whitelisted programs (SystemProgram, Token, Token-2022, Streamflow, `remlo_escrow`). |
+| `PRIVY_SOLANA_AGENT_WALLET_ADDRESS` | yes | Public address of the above. |
+| `PRIVY_SOLANA_POLICY_ID` | yes | Policy attached to the Solana wallet. Verified at signing time via `assertPrivyPolicyAttached`; signer fails closed if drift detected. |
+| `PRIVY_TEMPO_AGENT_WALLET_ID` | yes | Privy server wallet ID for the Remlo Tempo signer (used for ERC-8004 writes; PayrollBatcher migration to this wallet is a Phase 2 plan). |
+| `PRIVY_TEMPO_AGENT_WALLET_ADDRESS` | yes | Public address of the above. |
+| `PRIVY_TEMPO_POLICY_ID` | yes | Policy attached to the Tempo wallet. |
+
+### MPP / x402 fee recipients
+
+| Variable | Required | Description |
+|---|---|---|
+| `REMLO_TREASURY_ADDRESS` | yes | EVM EOA. Receives MPP fees on Tempo via mpp protocol. **Must be an EOA, not a contract**, since picking a contract that doesn't exist on the active chain permanently strands fees. |
+| `BASE_FEE_RECIPIENT_ADDRESS` | yes | EVM EOA. Receives x402 fees on Base. Can be the same address as `REMLO_TREASURY_ADDRESS` since the same EVM key holds balance on every EVM chain. |
+| `SOLANA_FEE_RECIPIENT_ADDRESS` | yes | Solana EOA holding (or able to hold) an SPL-USDC token account on the active cluster. |
+| `MPP_SECRET_KEY` | yes | 32 byte base64 secret used by mppx to bind challenges to their contents and prevent challenge-credential mismatches. |
+| `STRIPE_SECRET_KEY` | no | Stripe SPT secondary rail. Currently dropped from MPP endpoints; reserved for future re-enablement. |
+
+### Webhooks
+
+| Variable | Required | Description |
+|---|---|---|
+| `BRIDGE_API_KEY` | no | Bridge sandbox or production API key. Sandbox keys are prefixed `sk-test`. The app boots without a key but employee KYC link generation returns null. |
+| `BRIDGE_WEBHOOK_SECRET` | no | Bridge webhook RSA public key (PEM format). Bridge signs webhooks with RSA-SHA256 over `${timestamp}.${rawBody}`. The variable name says "secret" for backwards compat with Ship 7's HMAC era; the value is now an RSA public key. |
+| `TEMPO_WEBHOOK_SECRET` | yes | HMAC secret for Tempo settlement webhooks. Webhook handler refuses to start without it. |
+| `RESEND_API_KEY` | yes | Resend transactional email API key. Required for invite, KYC reminder, and payroll receipt emails. |
+| `RESEND_WEBHOOK_SECRET` | no | Svix signing secret from Resend dashboard. Required in production. The handler logs a warning and falls back to fail-warn mode in dev if missing. |
+| `CRON_SECRET` | yes | Random 32 byte hex string. Required by every `/api/cron/*` route. Verified via timing safe compare. |
+
+### AI and external services
+
+| Variable | Required | Description |
+|---|---|---|
+| `CLAUDE_API_KEY` | yes | Anthropic API key. Powers the AI agent on the dashboard, anomaly detection, escrow validators, and council specialists. |
+| `LIT_API_KEY` | no | Lit Protocol Chronicle API key. Used by the Vincent integration for selected reputation writes. |
+| `LIT_USAGE_KEY` | no | Lit Protocol Vincent usage key. |
+| `VINCENT_PKP_ETH_ADDRESS` | no | Vincent PKP signer address for Tempo ERC-8004 writes when Vincent path is preferred over Privy. |
+
+### Demo and seed
+
+| Variable | Required | Description |
+|---|---|---|
+| `SEED_PHRASE_EMPLOYEES` | no | Reproducible seed phrase for `scripts/seed-24-employees.ts`. Local development only. |
+| `DEPLOYER_PRIVATE_KEY` | no | EVM private key with deployer role on the Tempo contracts. Used by upgrade scripts under `scripts/`. |
+| `DEMO_MPP_CREDENTIAL` | no | Pre-baked mpp credential for local smoke tests. |
+
+## Cloudflare migration notes
+
+When migrating from Vercel to Cloudflare Pages, the variable names stay identical. `NEXT_PUBLIC_*` variables become bound to Cloudflare's environment automatically; server only variables go in the Pages dashboard's environment settings. The Resend integration ports to `env.SEND_EMAIL.send(...)` via Workers binding instead of `RESEND_API_KEY`.
+
+## Quick check
+
+After populating `.env.local`, verify the app boots:
+
+```bash
+pnpm install
+pnpm type-check
+pnpm dev
+```
+
+If type-check passes and the app loads at `http://localhost:3000`, your environment is wired correctly. Auth, payroll, escrow, and reputation flows each load on their respective routes if you have a Privy session.

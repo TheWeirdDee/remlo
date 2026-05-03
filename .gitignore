@@ -37,24 +37,10 @@ contracts/broadcast/**
 # Platform-operator tooling (not part of the public protocol)
 /scripts/
 
-# Internal development notes
-AGENT_PROGRESS.md
-DB_AUDIT.md
-DEMO_CHECKLIST.md
-GAPS.md
-REMLO_MASTER.md
-VINCENT_SETUP.md
-FRONTEND_SKILL.md
-*_PROGRESS.md
-*_AUDIT.md
-
-# Internal spec documents
-remlo_architecture_spec.md
-remlo_build_guide.md
-remlo_mpp_blueprint.md
-remlo_*.md
-remlo *.md
-vincent_research.md
+# Internal notes, plans, and audit logs.
+# Everything operator-facing lives here so external readers can't even infer
+# file names from the gitignore.
+internal/
 
 # Claude Code state
 .claude/

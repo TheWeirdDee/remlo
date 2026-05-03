@@ -6,6 +6,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { Bot, ChevronDown, Play, CheckCircle, Clock, AlertTriangle, ExternalLink, Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
+import { MarkdownText } from '@/components/ui/MarkdownText'
 import { SectionHeader } from '@/components/ui/SectionHeader'
 import { useEmployer } from '@/lib/hooks/useEmployer'
 import { useAgentDecisions, type AgentDecisionSummary } from '@/lib/hooks/useDashboard'
@@ -62,7 +63,8 @@ function DecisionCard({ decision, onExecuted }: { decision: AgentDecisionSummary
   } | null>(null)
   const fetchJson = usePrivyAuthedJson()
 
-  const firstSentence = decision.reasoning.split(/[.!]\s/)[0] + '.'
+  const plainReasoning = decision.reasoning.replace(/[*_`#]/g, '').replace(/\s+/g, ' ').trim()
+  const firstSentence = plainReasoning.split(/[.!]\s/)[0] + '.'
   const typeClass = TYPE_COLORS[decision.decision_type] ?? TYPE_COLORS.payroll_execution
   const typeLabel = TYPE_LABELS[decision.decision_type] ?? decision.decision_type
 
@@ -156,9 +158,9 @@ function DecisionCard({ decision, onExecuted }: { decision: AgentDecisionSummary
               {/* Reasoning */}
               <div>
                 <p className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wider mb-2">Agent&apos;s reasoning</p>
-                <blockquote className="border-l-2 border-[var(--accent)] pl-3 text-sm text-[var(--text-secondary)] leading-relaxed">
-                  {decision.reasoning}
-                </blockquote>
+                <div className="border-l-2 border-[var(--accent)] pl-3">
+                  <MarkdownText text={decision.reasoning} />
+                </div>
               </div>
 
               {/* Inputs summary */}
@@ -170,6 +172,9 @@ function DecisionCard({ decision, onExecuted }: { decision: AgentDecisionSummary
                   </div>
                 </div>
               )}
+
+              {/* Flagged items */}
+              <FlaggedItemsList inputs={decision.inputs} />
 
               {/* Decision output */}
               {decision.decision && (
@@ -235,6 +240,72 @@ function DecisionCard({ decision, onExecuted }: { decision: AgentDecisionSummary
         )}
       </AnimatePresence>
     </motion.div>
+  )
+}
+
+interface FlaggedItem {
+  employee_id: string
+  amount: number
+  reason: string
+  category?: string
+  severity: 'warning' | 'critical'
+}
+
+const CATEGORY_LABELS: Record<string, string> = {
+  duplicate_in_run: 'Duplicate',
+  amount_above_historical: 'Amount spike',
+  recently_onboarded: 'New employee',
+  wallet_changed: 'Wallet change',
+  kyc_not_verified: 'KYC pending',
+  kyc_expired: 'KYC expired',
+}
+
+function FlaggedItemsList({ inputs }: { inputs: Record<string, unknown> }) {
+  const anomalies = inputs.anomalies as { flagged_items?: FlaggedItem[] } | undefined
+  const items = anomalies?.flagged_items ?? []
+  if (items.length === 0) return null
+
+  return (
+    <div>
+      <p className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wider mb-2">
+        Flagged items ({items.length})
+      </p>
+      <ul className="space-y-1.5">
+        {items.map((item, i) => {
+          const label = item.category ? CATEGORY_LABELS[item.category] ?? item.category : null
+          const severityClass =
+            item.severity === 'critical'
+              ? 'border-[var(--status-error)]/30 bg-red-500/5'
+              : 'border-[var(--status-pending)]/30 bg-amber-500/5'
+          const dotClass =
+            item.severity === 'critical' ? 'bg-[var(--status-error)]' : 'bg-[var(--status-pending)]'
+          return (
+            <li
+              key={`${item.employee_id}-${i}`}
+              className={cn(
+                'flex items-start gap-2 rounded-lg border px-3 py-2 text-xs',
+                severityClass,
+              )}
+            >
+              <span className={cn('mt-1 h-1.5 w-1.5 rounded-full shrink-0', dotClass)} />
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2">
+                  {label && (
+                    <span className="text-[10px] font-semibold uppercase tracking-wider text-[var(--text-muted)]">
+                      {label}
+                    </span>
+                  )}
+                  <span className="font-mono text-[var(--text-secondary)]">
+                    ${item.amount.toFixed(2)}
+                  </span>
+                </div>
+                <p className="mt-0.5 text-[var(--text-secondary)]">{item.reason}</p>
+              </div>
+            </li>
+          )
+        })}
+      </ul>
+    </div>
   )
 }
 

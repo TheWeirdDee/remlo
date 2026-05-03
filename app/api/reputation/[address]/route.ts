@@ -45,12 +45,26 @@ export async function GET(
     }
   }
 
-  const result = await getCrossChainReputation(input)
+  try {
+    const result = await getCrossChainReputation(input)
 
-  return NextResponse.json(result, {
-    headers: {
-      'Cache-Control': 'public, max-age=30',
-      'Access-Control-Allow-Origin': '*',
-    },
-  })
+    // BigInts in `solana.totalAmountBaseUnits` aren't natively JSON-serializable.
+    // Stringify them for transport — the `unified.totalValueMovedBaseUnits`
+    // sibling field already does this; the replacer covers the inner copy.
+    const body = JSON.stringify(result, (_k, v) =>
+      typeof v === 'bigint' ? v.toString() : v,
+    )
+
+    return new NextResponse(body, {
+      headers: {
+        'Content-Type': 'application/json',
+        'Cache-Control': 'public, max-age=30',
+        'Access-Control-Allow-Origin': '*',
+      },
+    })
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'unknown error'
+    console.error('[reputation]', address, message, err instanceof Error ? err.stack : '')
+    return NextResponse.json({ error: message }, { status: 500 })
+  }
 }

@@ -95,7 +95,7 @@ function formatDate(iso: string | null | undefined) {
 }
 
 function buildActivityData(
-  items: Array<{ amount: number; created_at: string }>,
+  items: Array<{ amount: number; created_at: string; status?: string }>,
   yieldEarned: number
 ) {
   const daily = new Map<string, { deposits: number; payroll: number; yield: number }>()
@@ -109,6 +109,7 @@ function buildActivityData(
   }
 
   for (const item of items) {
+    if (item.status === 'failed') continue
     const key = item.created_at.slice(0, 10)
     const bucket = daily.get(key)
     if (bucket) {

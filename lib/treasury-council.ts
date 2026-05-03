@@ -13,6 +13,7 @@
  *     executor reads as a gate when amount > LARGE_PAYROLL_THRESHOLD.
  */
 import { createServerClient } from '@/lib/supabase-server'
+import { createNotification } from '@/lib/notifications'
 import {
   CLAUDE_MODEL,
   extractTextContent,
@@ -209,6 +210,26 @@ export async function runCouncilValidation(decisionId: string): Promise<void> {
       finalized_at: new Date().toISOString(),
     })
     .eq('id', decisionId)
+
+  // Surface the council outcome on the dashboard bell. Fire-and-forget.
+  if (decision.employer_id) {
+    const approved = consensus.verdict === 'approved'
+    void createNotification({
+      employerId: decision.employer_id,
+      kind: 'council_decision',
+      severity: approved ? 'success' : 'warning',
+      title: approved ? 'Council approved decision' : 'Council rejected decision',
+      body: `${consensus.approveCount}/${consensus.approveCount + consensus.rejectCount} specialists approved at ${Math.round(consensus.confidence * 100)}% confidence.`,
+      link: `/dashboard/treasury/council`,
+      metadata: {
+        decision_id: decisionId,
+        action_type: decision.action_type,
+        verdict: consensus.verdict,
+        approve_count: consensus.approveCount,
+        reject_count: consensus.rejectCount,
+      },
+    })
+  }
 }
 
 interface SpecialistResult {

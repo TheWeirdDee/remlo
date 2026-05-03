@@ -2,7 +2,7 @@
   "$schema": "https://mintlify.com/docs.json",
   "name": "Remlo",
   "theme": "mint",
-  "description": "Borderless enterprise payroll on Tempo L1.",
+  "description": "Payroll, agent payments, and on-chain reputation across Tempo, Solana, and Base.",
   "colors": {
     "primary": "#059669",
     "light": "#34D399",
@@ -38,7 +38,10 @@
             "group": "Protocol",
             "pages": [
               "docs/protocol/contracts",
-              "docs/protocol/memo"
+              "docs/protocol/memo",
+              "docs/protocol/escrow",
+              "docs/protocol/reputation",
+              "docs/protocol/council"
             ]
           },
           {
@@ -56,6 +59,7 @@
             "pages": [
               "docs/mpp-api/overview",
               "docs/mpp-api/authentication",
+              "docs/mpp-api/multi-rail",
               "docs/mpp-api/yield-rates",
               "docs/mpp-api/payroll-execution",
               "docs/mpp-api/compliance-check",

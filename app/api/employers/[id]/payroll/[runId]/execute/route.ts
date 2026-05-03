@@ -4,6 +4,10 @@ import { getAuthorizedEmployer } from '@/lib/auth'
 import { payrollBatcher, getServerWalletClient } from '@/lib/contracts'
 import { getEmployerOnchainIdentity, getEmployerOnchainIdentityError } from '@/lib/employer-onchain'
 import { byteaMemoToHex } from '@/lib/memo'
+import { createNotification } from '@/lib/notifications'
+import { sendEmail } from '@/lib/email/client'
+import { getEmployerRecipient } from '@/lib/email/recipients'
+import { TEMPO_EXPLORER_URL } from '@/lib/constants'
 
 type RouteContext = { params: Promise<{ id: string; runId: string }> }
 
@@ -85,12 +89,44 @@ export async function POST(req: NextRequest, ctx: RouteContext) {
   }
 
   const walletClient = getServerWalletClient(AGENT_KEY)
-  const txHash = await walletClient.writeContract({
-    address: payrollBatcher.address,
-    abi: payrollBatcher.abi,
-    functionName: 'executeBatchPayroll',
-    args: [recipients, amounts, memos as `0x${string}`[], onchainIdentity.employerAccountId],
-  })
+  let txHash: `0x${string}`
+  try {
+    txHash = await walletClient.writeContract({
+      address: payrollBatcher.address,
+      abi: payrollBatcher.abi,
+      functionName: 'executeBatchPayroll',
+      args: [recipients, amounts, memos as `0x${string}`[], onchainIdentity.employerAccountId],
+    })
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : 'unknown chain error'
+    console.error('[payroll-execute] writeContract failed', {
+      employerId,
+      runId,
+      batcher: payrollBatcher.address,
+      employerAccountId: String(onchainIdentity.employerAccountId),
+      recipients: recipients.length,
+      detail,
+    })
+    await supabase
+      .from('payroll_runs')
+      .update({ status: 'failed' })
+      .eq('id', runId)
+
+    void createNotification({
+      employerId,
+      kind: 'payroll_failed',
+      severity: 'error',
+      title: 'Payroll broadcast failed',
+      body: `On-chain submission rejected before settlement. ${recipients.length} employees not paid yet. ${detail.slice(0, 200)}`,
+      link: `/dashboard/payroll/${runId}`,
+      metadata: { recipient_count: recipients.length, error: detail.slice(0, 500) },
+    })
+
+    return NextResponse.json(
+      { error: `On-chain payroll broadcast failed: ${detail.slice(0, 500)}` },
+      { status: 502 },
+    )
+  }
 
   await Promise.all([
     supabase
@@ -102,6 +138,38 @@ export async function POST(req: NextRequest, ctx: RouteContext) {
       .update({ tx_hash: txHash, status: 'pending' })
       .eq('payroll_run_id', runId),
   ])
+
+  const totalAmount = items.reduce((sum, item) => sum + Number(item.amount), 0)
+  void createNotification({
+    employerId,
+    kind: 'payroll_finalized',
+    severity: 'success',
+    title: `Payroll broadcast on Tempo`,
+    body: `${recipients.length} employees · $${totalAmount.toFixed(2)} pathUSD · tx submitted`,
+    link: `/dashboard/payroll/${runId}`,
+    metadata: { tx_hash: txHash, recipient_count: recipients.length },
+  })
+
+  void (async () => {
+    const recipient = await getEmployerRecipient(employerId)
+    if (!recipient) return
+    const appUrl = (process.env.NEXT_PUBLIC_APP_URL ?? 'https://remlo.xyz').replace(/\/$/, '')
+    await sendEmail({
+      to: recipient.email,
+      template: 'payroll_finalized',
+      idempotencyKey: `payroll-finalized-${runId}`,
+      props: {
+        companyName: recipient.companyName,
+        recipientCount: recipients.length,
+        totalAmount,
+        txHash,
+        runUrl: `${appUrl}/dashboard/payroll/${runId}`,
+        explorerUrl: `${TEMPO_EXPLORER_URL}/tx/${txHash}`,
+        chain: 'tempo',
+        settlementMs: null,
+      },
+    })
+  })()
 
   return NextResponse.json({
     success: true,

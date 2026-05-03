@@ -3,6 +3,8 @@
 import * as React from 'react'
 import { usePathname, useRouter } from 'next/navigation'
 import { usePrivy } from '@privy-io/react-auth'
+import { CommandMenu } from '@/components/employer/CommandMenu'
+import { NotificationsBell } from '@/components/employer/NotificationsBell'
 
 function getPageTitle(pathname: string) {
   if (pathname === '/dashboard') return 'Dashboard'
@@ -31,6 +33,18 @@ export function EmployerHeader({ onMobileMenuOpen }: EmployerHeaderProps) {
   const { user, logout } = usePrivy()
   const router = useRouter()
   const [userMenuOpen, setUserMenuOpen] = React.useState(false)
+  const [searchOpen, setSearchOpen] = React.useState(false)
+
+  React.useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault()
+        setSearchOpen((v) => !v)
+      }
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [])
 
   async function handleLogout() {
     setUserMenuOpen(false)
@@ -79,27 +93,21 @@ export function EmployerHeader({ onMobileMenuOpen }: EmployerHeaderProps) {
       {/* Right side */}
       <div className="ml-auto flex items-center gap-2">
         {/* Search */}
-        <div className="hidden lg:flex items-center gap-2 h-9 px-3 rounded-lg border border-[var(--border-default)] bg-[var(--bg-base)] min-w-[200px]">
+        <button
+          onClick={() => setSearchOpen(true)}
+          className="hidden lg:flex items-center gap-2 h-9 px-3 rounded-lg border border-[var(--border-default)] bg-[var(--bg-base)] min-w-[200px] hover:border-[var(--border-strong)] transition-colors text-left"
+        >
           <svg viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4 text-[var(--text-muted)] shrink-0">
             <path fillRule="evenodd" d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" clipRule="evenodd" />
           </svg>
-          <input
-            type="text"
-            placeholder="Search…"
-            className="flex-1 bg-transparent text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none min-w-0"
-          />
+          <span className="flex-1 text-sm text-[var(--text-muted)] min-w-0">Search…</span>
           <kbd className="hidden xl:flex items-center gap-0.5 px-1.5 py-0.5 rounded border border-[var(--border-default)] text-[var(--text-muted)] text-[10px] font-mono">
             <span>⌘K</span>
           </kbd>
-        </div>
+        </button>
 
         {/* Notifications */}
-        <button className="relative w-9 h-9 flex items-center justify-center rounded-lg text-[var(--text-secondary)] hover:bg-[var(--bg-subtle)] transition-colors">
-          <svg viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5">
-            <path d="M10 2a6 6 0 00-6 6v3.586l-.707.707A1 1 0 004 14h12a1 1 0 00.707-1.707L16 11.586V8a6 6 0 00-6-6zM10 18a3 3 0 01-3-3h6a3 3 0 01-3 3z" />
-          </svg>
-          <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-[var(--status-error)]" />
-        </button>
+        <NotificationsBell />
 
         {/* User menu */}
         <div className="relative" ref={menuRef}>
@@ -136,6 +144,8 @@ export function EmployerHeader({ onMobileMenuOpen }: EmployerHeaderProps) {
           )}
         </div>
       </div>
+
+      <CommandMenu open={searchOpen} onOpenChange={setSearchOpen} />
     </header>
   )
 }

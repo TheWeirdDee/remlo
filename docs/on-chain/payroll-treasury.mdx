@@ -1,40 +1,65 @@
 ---
 title: "Payroll Treasury"
-description: "The secure on-chain vault holding and managing all employer funds on Tempo."
+description: "Per employer stablecoin custody on Tempo."
 ---
 
-The `PayrollTreasury` contract is the foundational component of Remlo's execution layer on the Tempo network. It acts as a secure, decentralized holding layer where employers deposit and manage their capital prior to executing a payroll cycle.
+`PayrollTreasury` is the on-chain vault that holds employer payroll capital on Tempo. Funds enter via `deposit`, sit under per employer accounting, and exit via `PayrollBatcher` (or, for emergency recoveries, via `sweepUnaccounted`).
 
-By moving treasury management entirely on-chain, employers gain complete transparency over their funds, while unlocking the ability to programmatically route idle capital into DeFi yield strategies before payday.
+## How funds enter
 
-```mermaid
-sequenceDiagram
-    participant Employer
-    participant Bridge API
-    participant Treasury Contract
-    participant YieldRouter
-    
-    Employer->>Bridge API: Transfer USD Fiat via ACH/Wire
-    Bridge API->>Treasury Contract: Mint identical balance as pathUSD
-    Treasury Contract->>Treasury Contract: Credit Employer's internal balance
-    Treasury Contract->>YieldRouter: Route idle pathUSD into yield strategies
+The dashboard's on-chain deposit widget is the canonical path. The widget is at `components/treasury/OnChainDepositWidget.tsx`. It signs an ERC-20 `approve` for the deposit amount, then calls `PayrollTreasury.deposit(amount, memo)` from the employer's Privy embedded wallet.
+
+The deposit memo carries identity. The first 8 bytes must equal `bytes8(keccak256(employerAdminWallet))`. The contract enforces this at `deposit` time and reverts with `MemoEmployerMismatch` if the prefix doesn't match the `msg.sender`'s expected employer ID. Bytes 8-31 are reserved for future pay period and cost center metadata.
+
+```solidity
+function deposit(uint256 amount, bytes32 memo) external nonReentrant {
+    bytes8 expected = bytes8(keccak256(abi.encodePacked(msg.sender)));
+    if (bytes8(memo) != expected) revert MemoEmployerMismatch();
+    // ... pulls amount via SafeTIP20.transferFromWithMemo, credits employer balance
+}
 ```
 
-## How the Treasury Operates
+This is audit fix M-1. Before the fix, an attacker could forward a tiny dust deposit with a forged memo and confuse off-chain accounting into crediting another employer's books.
 
-The `PayrollTreasury` manages several disparate states for every registered employer simultaneously, ensuring that general payroll capital is effectively separated from operational gas budgets.
+## Per employer accounting
 
-1. **Deposits and Minting**: Employers fund their treasury using fiat via the Bridge API integration. When funds clear, Bridge mints the equivalent amount in stablecoins (e.g., pathUSD) directly into the treasury on behalf of the employer's unique identifier.
-2. **Gas Funding**: The treasury securely separates the main payroll balance from a dedicated gas budget. This architectural design ensures that autonomous payroll runs or low-level streaming claims never fail midway due to an empty gas tank.
-3. **Yield Integration**: Capital sitting idle for days before a payday is inefficient. The treasury natively integrates with the `YieldRouter` to automatically deploy unutilized stablecoins into risk-averse DeFi yield protocols, effectively establishing an automated treasury management system.
-4. **Disbursement**: When the `PayrollBatcher` executes a run, it explicitly verifies the treasury's `availableBalance`. If sufficient, the batcher seamlessly draws the exact payroll total and automatically handles the distribution.
+Every employer holds a `EmployerAccount` struct in storage:
 
-### Contract State Mapping
+```solidity
+struct EmployerAccount {
+    uint256 balance;
+    uint256 lockedBalance;  // locked while a batch is being prepared
+    uint256 policyId;       // optional TIP-403 binding
+}
+```
 
-Under the hood, the `PayrollTreasury` maps the `msg.sender` derived Employer ID to a distinct `EmployerAccount` struct. This mapping guarantees that an employer's funds can never be co-mingled or improperly accessed by another entity.
+`PayrollBatcher` calls `transferToBatcher(employerId, total)` (only callable by the configured Batcher address) which decrements the employer's balance and transfers via SafeTIP20.
 
-The struct tracks:
-- `balance`: The total available stablecoins ready to distribute as payroll.
-- `gasBudget`: Pre-funded tokens reserved solely to pay for transactional overhead.
-- `lockedBalance`: Funds dedicated to in-flight runs that cannot be withdrawn or routed.
-- `policyId`: The explicit TIP-403 compliance policy bound to this employer.
+Idle balance can be routed through `YieldRouter` if the employer has yield enabled and the strategy passes the audit allow list (fix H-5).
+
+## Aggregate accounting (audit fix C-1)
+
+`totalAccountedPayToken` tracks the sum of all employer balances. The owner-only `sweepUnaccounted` function transfers any tokens above this aggregate to a recovery address. Before the fix, a buggy front end or accidental token send to the contract was unrecoverable. After the fix, dust is sweepable without touching legitimate employer balances.
+
+## Events
+
+- `Deposited(employerId indexed, amount, memo)` on every successful deposit.
+- `Unlocked(employerId indexed, amount)` when locked funds release back to free balance after a batch (audit fix M-5: previously this was silent; now there's an audit trail).
+- `BatcherSet(oldBatcher, newBatcher)` on owner only `setBatcher`.
+- `Swept(token, to, amount)` on `sweepUnaccounted`.
+
+## Live deployment
+
+Tempo Moderato (chainId `42431`):
+
+```
+0xEC73B9762b13148C54De792d70a2DB48690fD1F7
+```
+
+[View on explorer](https://explore.moderato.tempo.xyz/address/0xEC73B9762b13148C54De792d70a2DB48690fD1F7).
+
+The currency it holds is USDC.e at `0x20C000000000000000000000b9537d11c60E8b50`. 6 decimals. All amounts in the Treasury and Batcher are atomic units (e.g., `1000000` is one dollar).
+
+## Why on-chain custody
+
+If Remlo held customer funds in a centrally controlled wallet, a key compromise would expose every customer's payroll. Custody on a per employer accounting contract means an attacker can drain at most one employer (and only if they compromise that employer's specific admin wallet). Funds are the trust boundary. Remlo is a software layer.

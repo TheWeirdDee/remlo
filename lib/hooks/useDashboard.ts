@@ -202,6 +202,55 @@ export function usePayrollRuns(employerId: string | undefined, page = 1, limit =
   })
 }
 
+export interface PayrollRunDetail {
+  id: string
+  status: string
+  total_amount: number | null
+  employee_count: number | null
+  fee_amount: number
+  token_address: string
+  tx_hash: string | null
+  mpp_receipt_hash: string | null
+  block_number: number | null
+  finalized_at: string | null
+  settlement_time_ms: number | null
+  chain: string
+  solana_signatures: string[] | null
+  council_approved_at: string | null
+  created_at: string
+}
+
+export interface PayrollRunPaymentItem {
+  id: string
+  employee_id: string
+  employee_name: string | null
+  employee_email: string | null
+  wallet_address: string | null
+  amount: number
+  status: string
+  tx_hash: string | null
+  chain: string
+  solana_signature: string | null
+  policy_rejection_reason: string | null
+  created_at: string
+}
+
+export interface PayrollRunResponse {
+  run: PayrollRunDetail
+  items: PayrollRunPaymentItem[]
+}
+
+export function usePayrollRun(employerId: string | undefined, runId: string | undefined) {
+  const { ready, authenticated } = usePrivy()
+  const fetchJson = usePrivyAuthedJson()
+
+  return useQuery<PayrollRunResponse>({
+    queryKey: ['payroll-run', employerId, runId],
+    queryFn: () => fetchJson(`/api/employers/${employerId}/payroll/${runId}`),
+    enabled: ready && authenticated && Boolean(employerId) && Boolean(runId),
+  })
+}
+
 export function useMppSessions(employerId: string | undefined) {
   const { ready, authenticated } = usePrivy()
   const fetchJson = usePrivyAuthedJson()
@@ -285,6 +334,35 @@ export function useCrossChainTreasury() {
     queryKey: ['cross-chain-treasury'],
     queryFn: () => fetchJson('/api/x402/treasury/status'),
     enabled: ready && authenticated,
+  })
+}
+
+export interface NotificationItem {
+  id: string
+  kind: string
+  title: string
+  body: string | null
+  severity: 'info' | 'success' | 'warning' | 'error'
+  link: string | null
+  metadata: Record<string, unknown> | null
+  read_at: string | null
+  created_at: string
+}
+
+export interface NotificationsResponse {
+  items: NotificationItem[]
+  unread_count: number
+}
+
+export function useNotifications(employerId: string | undefined) {
+  const { ready, authenticated } = usePrivy()
+  const fetchJson = usePrivyAuthedJson()
+
+  return useQuery<NotificationsResponse>({
+    queryKey: ['notifications', employerId],
+    queryFn: () => fetchJson(`/api/employers/${employerId}/notifications`),
+    enabled: ready && authenticated && Boolean(employerId),
+    refetchInterval: 30_000,
   })
 }
 

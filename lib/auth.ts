@@ -1,54 +1,50 @@
 /**
  * lib/auth.ts — server-side auth helpers for API route handlers.
- * Decodes Privy JWT Bearer tokens and resolves the caller's employer/employee record.
+ *
+ * Verifies Privy JWT Bearer tokens via Web Crypto (see lib/jwt.ts) and resolves
+ * the caller's employer / employee / admin record.
+ *
+ * SECURITY: all helpers here fail closed. If PRIVY_VERIFICATION_KEY is missing
+ * or the signature does not verify, every helper returns null and the caller
+ * MUST return 401.
  */
-import { NextRequest } from 'next/server'
+import type { NextRequest } from 'next/server'
 import { createServerClient } from '@/lib/supabase-server'
+import { verifyPrivyToken, extractBearerToken, type PrivyClaims } from '@/lib/jwt'
 import type { Database } from '@/lib/database.types'
 
 export type Employer = Database['public']['Tables']['employers']['Row']
 export type Employee = Database['public']['Tables']['employees']['Row']
 
-export interface PrivyClaims {
-  sub: string
-  exp?: number
-}
+export type { PrivyClaims }
 
-function getAdminUserIds() {
+function getAdminUserIds(): string[] {
   return (process.env.ADMIN_USER_IDS ?? '')
     .split(',')
     .map((value) => value.trim())
     .filter(Boolean)
 }
 
-export function isPlatformAdminUserId(userId: string | null | undefined) {
+export function isPlatformAdminUserId(userId: string | null | undefined): boolean {
   if (!userId) return false
   return getAdminUserIds().includes(userId)
 }
 
-export function decodePrivyToken(token: string): PrivyClaims | null {
-  try {
-    const [, payload] = token.split('.')
-    const base64 = payload.replace(/-/g, '+').replace(/_/g, '/')
-    const padded = base64.padEnd(base64.length + ((4 - (base64.length % 4)) % 4), '=')
-    const decoded = JSON.parse(atob(padded)) as { sub?: string; exp?: number }
-    if (!decoded.sub) return null
-    if (decoded.exp && decoded.exp * 1000 < Date.now()) return null
-    return { sub: decoded.sub, exp: decoded.exp }
-  } catch {
-    return null
-  }
-}
-
-/** Extract Privy claims from the Authorization: Bearer header. */
-export function getPrivyClaims(req: NextRequest): PrivyClaims | null {
-  const authHeader = req.headers.get('authorization')
-  if (!authHeader?.startsWith('Bearer ')) return null
-  return decodePrivyToken(authHeader.slice(7))
+/**
+ * Verify and return the Privy claims for the incoming request. Returns null on
+ * any failure (no header, bad token, expired, invalid signature).
+ *
+ * Breaking change vs pre-audit implementation: this is now ASYNC and the old
+ * unverified decode is gone. Every call site must `await`.
+ */
+export async function getPrivyClaims(req: NextRequest): Promise<PrivyClaims | null> {
+  const token = extractBearerToken(req.headers.get('authorization'))
+  if (!token) return null
+  return verifyPrivyToken(token)
 }
 
 export async function getCallerAdmin(req: NextRequest): Promise<PrivyClaims | null> {
-  const claims = getPrivyClaims(req)
+  const claims = await getPrivyClaims(req)
   if (!claims) return null
   if (!isPlatformAdminUserId(claims.sub)) return null
   return claims
@@ -56,7 +52,7 @@ export async function getCallerAdmin(req: NextRequest): Promise<PrivyClaims | nu
 
 /** Resolve the employer record for the authenticated caller. */
 export async function getCallerEmployer(req: NextRequest): Promise<Employer | null> {
-  const claims = getPrivyClaims(req)
+  const claims = await getPrivyClaims(req)
   if (!claims) return null
 
   const supabase = createServerClient()
@@ -72,7 +68,7 @@ export async function getCallerEmployer(req: NextRequest): Promise<Employer | nu
 
 /** Resolve the employee record for the authenticated caller. */
 export async function getCallerEmployee(req: NextRequest): Promise<Employee | null> {
-  const claims = getPrivyClaims(req)
+  const claims = await getPrivyClaims(req)
   if (!claims) return null
 
   const supabase = createServerClient()
@@ -89,9 +85,9 @@ export async function getCallerEmployee(req: NextRequest): Promise<Employee | nu
 /** Resolve the employer by ID, verifying the caller is the owner. */
 export async function getAuthorizedEmployer(
   req: NextRequest,
-  employerId: string
+  employerId: string,
 ): Promise<Employer | null> {
-  const claims = getPrivyClaims(req)
+  const claims = await getPrivyClaims(req)
   if (!claims) return null
 
   const supabase = createServerClient()
@@ -109,9 +105,9 @@ export async function getAuthorizedEmployer(
 /** Resolve the employee by ID, verifying the caller owns that employee record. */
 export async function getAuthorizedEmployee(
   req: NextRequest,
-  employeeId: string
+  employeeId: string,
 ): Promise<Employee | null> {
-  const claims = getPrivyClaims(req)
+  const claims = await getPrivyClaims(req)
   if (!claims) return null
 
   const supabase = createServerClient()

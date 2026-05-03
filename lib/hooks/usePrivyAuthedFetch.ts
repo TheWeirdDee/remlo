@@ -11,7 +11,16 @@ export function usePrivyAuthedFetch() {
       const headers = new Headers(init.headers)
 
       if (authenticated) {
-        const token = await getAccessToken()
+        // getAccessToken() can transiently return null while Privy refreshes
+        // the access token. If we send the request without a Bearer header
+        // the server 401s — which React Query then retries. Avoid the noise
+        // by retrying the token fetch a few times before giving up.
+        let token: string | null = null
+        for (let attempt = 0; attempt < 5; attempt++) {
+          token = await getAccessToken()
+          if (token) break
+          await new Promise((r) => setTimeout(r, 50 * (attempt + 1)))
+        }
         if (token) {
           headers.set('Authorization', `Bearer ${token}`)
         }

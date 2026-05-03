@@ -6,9 +6,18 @@ export interface PayrollPlanItem {
   chain: 'tempo' | 'solana'
 }
 
+export type AnomalyCategory =
+  | 'duplicate_in_run'
+  | 'amount_above_historical'
+  | 'recently_onboarded'
+  | 'wallet_changed'
+  | 'kyc_not_verified'
+  | 'kyc_expired'
+
 export interface AnomalyItem {
   employee_id: string
   amount: number
+  category: AnomalyCategory
   reason: string
   severity: 'warning' | 'critical'
 }
@@ -30,7 +39,7 @@ export async function detectAnomalies(
   const [{ data: employees }, { data: recentPayments }] = await Promise.all([
     client
       .from('employees')
-      .select('id, salary_amount, kyc_status, onboarded_at')
+      .select('id, salary_amount, kyc_status, onboarded_at, wallet_address')
       .in('id', employeeIds),
     client
       .from('payment_items')
@@ -39,6 +48,22 @@ export async function detectAnomalies(
       .order('created_at', { ascending: false })
       .limit(employeeIds.length * 6),
   ])
+
+  const { data: recentEmployeePayments } = await client
+    .from('payment_items')
+    .select('employee_id, memo_decoded')
+    .in('employee_id', employeeIds)
+    .order('created_at', { ascending: false })
+    .limit(employeeIds.length)
+
+  const lastWalletByEmployee = new Map<string, string>()
+  for (const p of recentEmployeePayments ?? []) {
+    if (lastWalletByEmployee.has(p.employee_id)) continue
+    const memo = p.memo_decoded as { wallet_address?: string } | null
+    if (memo?.wallet_address) {
+      lastWalletByEmployee.set(p.employee_id, memo.wallet_address.toLowerCase())
+    }
+  }
 
   const empMap = new Map(
     (employees ?? []).map((e) => [e.id, e]),
@@ -75,6 +100,7 @@ export async function detectAnomalies(
       flags.push({
         employee_id: item.employee_id,
         amount: item.amount,
+        category: 'duplicate_in_run',
         reason: 'Duplicate payment in same payroll run',
         severity: 'critical',
       })
@@ -82,29 +108,56 @@ export async function detectAnomalies(
 
     const avg = avgMap.get(item.employee_id)
     if (avg && item.amount > avg * 2) {
+      const ratio = (item.amount / avg).toFixed(1)
       flags.push({
         employee_id: item.employee_id,
         amount: item.amount,
-        reason: `Amount $${item.amount} is >2x historical average ($${avg.toFixed(2)})`,
+        category: 'amount_above_historical',
+        reason: `Amount $${item.amount} is ${ratio}x historical average ($${avg.toFixed(2)})`,
         severity: 'warning',
       })
     }
 
-    if (emp && !countMap.has(item.employee_id)) {
+    if (emp?.onboarded_at) {
+      const ageMs = Date.now() - new Date(emp.onboarded_at).getTime()
+      const ageDays = ageMs / (1000 * 60 * 60 * 24)
+      if (ageDays >= 0 && ageDays <= 7) {
+        flags.push({
+          employee_id: item.employee_id,
+          amount: item.amount,
+          category: 'recently_onboarded',
+          reason: `New employee — onboarded ${Math.max(1, Math.round(ageDays))} day(s) ago`,
+          severity: 'warning',
+        })
+      }
+    }
+
+    const lastWallet = lastWalletByEmployee.get(item.employee_id)
+    if (lastWallet && emp?.wallet_address && emp.wallet_address.toLowerCase() !== lastWallet) {
       flags.push({
         employee_id: item.employee_id,
         amount: item.amount,
-        reason: 'First payment for this employee — verify details',
-        severity: 'warning',
+        category: 'wallet_changed',
+        reason: 'Wallet address changed since last payment',
+        severity: 'critical',
       })
     }
 
-    if (emp && emp.kyc_status !== 'verified') {
+    if (emp && emp.kyc_status === 'expired') {
       flags.push({
         employee_id: item.employee_id,
         amount: item.amount,
-        reason: `KYC status is "${emp.kyc_status}" — not verified`,
-        severity: emp.kyc_status === 'expired' ? 'critical' : 'warning',
+        category: 'kyc_expired',
+        reason: 'KYC verification expired — re-verification required',
+        severity: 'critical',
+      })
+    } else if (emp && emp.kyc_status !== 'verified') {
+      flags.push({
+        employee_id: item.employee_id,
+        amount: item.amount,
+        category: 'kyc_not_verified',
+        reason: `KYC status is "${emp.kyc_status}" — verification incomplete`,
+        severity: 'warning',
       })
     }
 

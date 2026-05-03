@@ -21,11 +21,11 @@ export default function CareersPage() {
         <section className="space-y-6">
           <h2 className="text-xl font-bold text-[var(--text-primary)]">Why Remlo?</h2>
           <p className="text-[var(--text-secondary)] leading-relaxed">
-            We are a distributed team of engineers, designers, and thinkers who are obsessed with solving hard problems. At Remlo, you'll have the autonomy to make a massive impact and build software that genuinely shifts the paradigm of how people get paid.
+            We are a distributed team of engineers, designers, and thinkers building the payment substrate for borderless work. At Remlo, you have the autonomy to ship work that genuinely shifts how money moves between humans, companies, and autonomous agents.
           </p>
           <ul className="list-disc pl-6 space-y-2 text-[var(--text-secondary)]">
             <li>Remote-first, async culture</li>
-            <li>Paid in stablecoins (via Remlo!)</li>
+            <li>Paid in stablecoins on the chain you prefer (yes, via Remlo)</li>
             <li>Learning and wellness stipends</li>
           </ul>
         </section>
