@@ -17,10 +17,11 @@ Single charge — Processes a single on-chain transaction to release the funds.
 **Request**
 ```json
 {
-  "employeeWallet": "0xEmployeeWallet1",
-  "streamId": 42
+  "employeeId": "f1a4-..."
 }
 ```
+
+The wallet address is resolved server-side from the `employees` table, so an authorized agent of employer A can never trigger a claim for employer B's worker just by knowing a wallet.
 
 **Response**
 ```json
@@ -38,3 +39,12 @@ npx agentcash post https://remlo.xyz/api/mpp/employee/advance '{"employeeWallet"
 
 **Notes**
 The request will revert if the total accrued amount is less than the protocol's minimum claim threshold to prevent dusting attacks.
+
+## Authorization
+
+Caller must be the employer that owns the employee. Accepts:
+
+- **Privy bearer token** — employer owner.
+- **Tier 1 / Tier 2 agent** — registered against that employer.
+
+See [Authentication](/docs/mpp-api/authentication#two-factor-payment--principal).

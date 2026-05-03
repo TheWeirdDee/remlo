@@ -1,5 +1,6 @@
 import Link from 'next/link'
 import { RemloLogo } from '@/components/brand/RemloLogo'
+import { ManageCookiesLink } from '@/components/legal/ManageCookiesLink'
 
 const FOOTER_COLS = [
   {
@@ -105,6 +106,11 @@ export function PublicFooter() {
                     <FooterLink {...link} />
                   </li>
                 ))}
+                {col.label === 'Legal' && (
+                  <li>
+                    <ManageCookiesLink className="text-sm text-white/40 transition-colors hover:text-white" />
+                  </li>
+                )}
               </ul>
             </div>
           ))}

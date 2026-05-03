@@ -41,3 +41,13 @@ npx agentcash post https://remlo.xyz/api/mpp/bridge/offramp '{"employeeWallet":"
 
 **Notes**
 Failure states usually trigger if the destination bank rejects the payload or the specific country corridor is temporarily paused for liquidity constraints via Bridge.
+
+## Authorization
+
+Caller must be the employer that owns the employee being off-ramped. Accepts:
+
+- **Privy bearer token** — employer owner.
+- **Tier 1 agent** — registered HMAC headers.
+- **Tier 2 agent** — registered ERC-8004 identity headers.
+
+Cross-employer off-ramp is blocked: request is 403 if the employee's `employer_id` doesn't match the proven principal. See [Authentication](/docs/mpp-api/authentication#two-factor-payment--principal).

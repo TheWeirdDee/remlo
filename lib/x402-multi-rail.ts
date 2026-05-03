@@ -6,7 +6,6 @@ import { Mppx, tempo as mppxTempo } from 'mppx/nextjs'
 import {
   SOLANA_CAIP2_DEVNET,
   SOLANA_CAIP2_MAINNET,
-  SOLANA_USDC_DECIMALS,
   SOLANA_USDC_MINT_DEVNET,
   SOLANA_USDC_MINT_MAINNET,
   X402_FACILITATOR_URL,
@@ -141,10 +140,6 @@ function buildSolanaRequirements(opts: MultiRailChargeOptions, resourceUrl: stri
   }
 }
 
-function networkMatchesRequirements(network: string, requirements: PaymentRequirements): boolean {
-  return requirements.network.toLowerCase() === network.toLowerCase()
-}
-
 function decodeXPayment(header: string): PaymentPayload | null {
   try {
     const decoded = Buffer.from(header, 'base64').toString('utf-8')
@@ -160,7 +155,40 @@ interface BuildChallengeOptions {
   error?: string
 }
 
-function buildUnifiedChallenge({ request, options, error }: BuildChallengeOptions): Response {
+/**
+ * Generate the Tempo `WWW-Authenticate: Payment ...` header by delegating to
+ * mppx. The header carries a signed challenge id and a base64-encoded
+ * PaymentRequest token that mppx will verify on retry, so we cannot replicate
+ * the format by hand.
+ *
+ * Returns null if the Tempo rail is disabled or mppx fails to produce a 402.
+ */
+async function generateTempoChallengeHeader(
+  request: Request,
+  options: MultiRailChargeOptions,
+): Promise<string | null> {
+  if (!process.env.REMLO_TREASURY_ADDRESS) return null
+  try {
+    // Calling mppx with a noop handler against a fresh request returns its
+    // 402 challenge Response. We extract the WWW-Authenticate header and
+    // discard the body. The Request is cloned so the original body stays
+    // readable for downstream handlers if any.
+    const probe = new Request(request.url, {
+      method: request.method,
+      headers: request.headers,
+    })
+    const noopHandler = async () => new Response('', { status: 200 })
+    const wrapped = getTempoMppx().tempo.charge({ amount: options.amount })(noopHandler)
+    const result = await wrapped(probe)
+    if (result.status !== 402) return null
+    return result.headers.get('WWW-Authenticate')
+  } catch (err) {
+    console.warn('[multi-rail] mppx challenge generation failed', err)
+    return null
+  }
+}
+
+async function buildUnifiedChallenge({ request, options, error }: BuildChallengeOptions): Promise<Response> {
   const rails = new Set(options.rails ?? ['tempo', 'base', 'solana'])
   const accepts: PaymentRequirements[] = []
   if (rails.has('base')) {
@@ -180,20 +208,8 @@ function buildUnifiedChallenge({ request, options, error }: BuildChallengeOption
 
   const headers: Record<string, string> = { 'Content-Type': 'application/json' }
   if (rails.has('tempo')) {
-    const recipient = process.env.REMLO_TREASURY_ADDRESS
-    if (recipient) {
-      // mpp-protocol challenge surfaced via WWW-Authenticate. Format documented in
-      // mppx source; AgentCash + mppx clients parse this header to learn the
-      // Tempo rail's chain, currency, recipient, and amount.
-      headers['WWW-Authenticate'] = [
-        `mpp realm="${REALM}"`,
-        `method="tempo"`,
-        `chainId="4217"`,
-        `currency="${TEMPO_USDC_E}"`,
-        `recipient="${recipient}"`,
-        `amount="${options.amount}"`,
-      ].join(', ')
-    }
+    const tempoHeader = await generateTempoChallengeHeader(request, options)
+    if (tempoHeader) headers['WWW-Authenticate'] = tempoHeader
   }
 
   const body = {
@@ -267,7 +283,7 @@ export function multiRailCharge(options: MultiRailChargeOptions) {
           return await wrapped(req)
         } catch (err) {
           console.error('[multi-rail] mppx Tempo charge threw', err)
-          return buildUnifiedChallenge({
+          return await buildUnifiedChallenge({
             request: req,
             options,
             error: 'Tempo charge failed',
@@ -280,7 +296,7 @@ export function multiRailCharge(options: MultiRailChargeOptions) {
       if (xPayment) {
         const payload = decodeXPayment(xPayment)
         if (!payload) {
-          return buildUnifiedChallenge({
+          return await buildUnifiedChallenge({
             request: req,
             options,
             error: 'Malformed X-PAYMENT header',
@@ -288,7 +304,7 @@ export function multiRailCharge(options: MultiRailChargeOptions) {
         }
         const match = matchCdpRail(payload, options, req.url)
         if (!match) {
-          return buildUnifiedChallenge({
+          return await buildUnifiedChallenge({
             request: req,
             options,
             error: `Unsupported payment network: ${payload.accepted?.network ?? 'unknown'}`,
@@ -308,7 +324,7 @@ export function multiRailCharge(options: MultiRailChargeOptions) {
         try {
           const verify = await cdpServer.verifyPayment(payload, match.requirements)
           if (!verify.isValid) {
-            return buildUnifiedChallenge({
+            return await buildUnifiedChallenge({
               request: req,
               options,
               error: verify.invalidMessage ?? verify.invalidReason ?? 'Payment invalid',
@@ -316,7 +332,7 @@ export function multiRailCharge(options: MultiRailChargeOptions) {
           }
         } catch (err) {
           console.error('[multi-rail] verifyPayment threw', { rail: match.rail, err })
-          return buildUnifiedChallenge({
+          return await buildUnifiedChallenge({
             request: req,
             options,
             error: 'Payment verification error',
@@ -345,7 +361,7 @@ export function multiRailCharge(options: MultiRailChargeOptions) {
       }
 
       // No payment headers — return unified 402 challenge.
-      return buildUnifiedChallenge({ request: req, options })
+      return await buildUnifiedChallenge({ request: req, options })
     }
   }
 }

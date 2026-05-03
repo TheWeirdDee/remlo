@@ -44,3 +44,7 @@ curl -X POST https://remlo.xyz/api/mpp/treasury/optimize \
 
 **Notes**
 Requires the `YieldRouter` to maintain a whitelisted address hierarchy to execute `rebalance`. If allocations sum over the liquid `PayrollTreasury` state, the transaction reverts to secure base capital limits.
+
+## Authorization
+
+Treasury financials are private. Caller must be the employer (Privy) or an authorized Tier 1 / Tier 2 agent for the employer. See [Authentication](/docs/mpp-api/authentication#two-factor-payment--principal).

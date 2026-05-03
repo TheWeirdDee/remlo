@@ -42,3 +42,7 @@ curl -X POST https://remlo.xyz/api/mpp/compliance/check \
 
 **Notes**
 A status of `BLOCKED` will prevent the wallet from being added to the `EmployeeRegistry` and immediately revert any on-chain transfer attempts.
+
+## Authorization
+
+Reads from the public TIP-403 registry on-chain. Payment proof is sufficient — no principal proof required. See [Authentication](/docs/mpp-api/authentication#two-factor-payment--principal).

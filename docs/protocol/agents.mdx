@@ -1,0 +1,75 @@
+---
+title: "Agents"
+description: "How Remlo identifies, authorizes, and accumulates reputation for autonomous agents on Tempo and Solana."
+---
+
+Remlo treats agents as first-class principals. An agent is anything — human-operated CLI, AI assistant, autonomous workflow — that wants to call an MPP endpoint with payment + identity bound together. This page explains how agents are identified, how their identity travels across employers, and what their reputation graph looks like.
+
+## What an agent is
+
+An agent has three properties:
+
+1. **A wallet** — at least one EOA on Tempo or Solana that pays MPP charges.
+2. **An identity** — either an HMAC secret issued by a single employer (Tier 1) or an ERC-8004 token on Tempo (Tier 2).
+3. **Authorizations** — rows in `employer_agent_authorizations` that bind the identity to one or more employers, with caps.
+
+The wallet is for paying. The identity is for proving "this is the same agent across calls." Authorizations are the consent record from each employer.
+
+## The two-tier model
+
+Remlo intentionally supports both flavors of identity, because the right one depends on the integration.
+
+### Tier 1 — HMAC
+
+The simplest setup. An employer creates a signing_secret for a specific agent. The agent attaches three headers to every request and signs an HMAC over the body. No on-chain step, no per-employer registry, no portability.
+
+When to use it: a single agent integrated against a single employer, or a smoke-test integration where you want to be productive in five minutes.
+
+### Tier 2 — ERC-8004 + ECDSA
+
+The agent registers an identity token on the Tempo IdentityRegistry. The EOA that owns the token signs every request. Multiple employers can authorize the same agentId; reputation accumulates against the agentId across all of them.
+
+When to use it: an agent that transacts with multiple employers, an agent operator who wants reputation portable to other ERC-8004-aware systems, or a serious production integration where credential rotation matters.
+
+For the full setup — calldata, signing format, header layout — see [Agent registration](/docs/mpp-api/agent-registration).
+
+## Reputation surfaces
+
+Once an agent is registered (Tier 1 or Tier 2), its activity feeds Remlo's two reputation registries:
+
+- **ERC-8004 ReputationRegistry on Tempo.** Remlo writes a `giveFeedback` after every successful `agent/pay`, scoped by `tag1` (e.g. `agent_pay`, `payroll_completed`, `escrow_settled`). External systems read `getSummary` to discover what an agent has done across all of Remlo.
+- **Solana Attestation Service (SAS).** Mirror attestations on Solana track escrow-side outcomes (`escrow_settled`, `escrow_refunded`) so an agent's behavior on the Solana escrow program is visible to non-Tempo readers.
+
+Both are write-back: Remlo doesn't gate access on prior reputation, but the agent's track record is visible to anyone who queries the registry directly.
+
+## Identity transfer and revocation
+
+ERC-8004 tokens are transferable. If an agent's owner EOA changes (e.g. a key rotation), the cached `erc8004_owner_address` on existing Remlo authorizations becomes stale. Remlo's behavior is fail-closed: requests signed by the new owner stop verifying until each employer re-authorizes the agentId, which re-resolves the owner from the registry.
+
+Tier 1 secrets rotate via the dashboard. The old secret stops working immediately.
+
+In both cases, the authorization row carries a `revoked_at` timestamp the employer sets — once non-null, every request returns 403 regardless of payment or signature.
+
+## Cross-chain identity
+
+Today, Tier 2 identity lives on Tempo only. A Solana-native agent can still pay on Solana (the x402 facilitator verifies the signed SPL transfer), but to identify itself it must hold a Tempo ERC-8004 token. The two are decoupled.
+
+A future iteration will add a SAS-based Tier 2 path so a Solana-only agent can register without ever touching Tempo. The wire format would change (`X-Agent-Identifier: sas:solana:<schema>:<credential>`), but the same `requireEmployerCaller` helper will dispatch to it. For now, treat Tempo ERC-8004 as the canonical Tier 2 identity.
+
+## Discovery
+
+Agents looking for Remlo's own agent IDs (the Payroll Agent and Validator Agent) can hit the public discovery endpoint:
+
+```
+GET https://www.remlo.xyz/api/agents/remlo
+```
+
+It returns ERC-8004 agent IDs, agentURIs, registered services, and live reputation summaries — cached at the Next data layer for five minutes so heavy crawler traffic doesn't pressure the Tempo RPC.
+
+Resolving any other agent's owner is a single call to:
+
+```
+GET https://www.remlo.xyz/api/agents/lookup?agent_id=<bigint>
+```
+
+which is what the [`/agents/register`](https://www.remlo.xyz/agents/register) verification step uses internally.

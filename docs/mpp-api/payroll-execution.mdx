@@ -44,3 +44,13 @@ curl -X POST https://remlo.xyz/api/mpp/payroll/execute \
 
 **Notes**
 If the treasury `availableBalance` is less than the requested `total_amount`, the execution will fail and revert, but the $1.00 API access charge is still settled due to processing costs. Ensure preflight checks on treasury health before execution.
+
+## Authorization
+
+Caller must be the employer that owns the payroll run, proven by either:
+
+- **Privy bearer token** — `Authorization: Bearer <privy_jwt>` whose `sub` matches `employers.owner_user_id`.
+- **Tier 1 agent** — `X-Agent-Identifier` + `X-Agent-Timestamp` + `X-Agent-Signature` (HMAC).
+- **Tier 2 agent** — `X-Agent-Identifier: erc8004:tempo:<agentId>` + signed canonical message.
+
+Without principal proof, the request is rejected even if payment was paid. See [Authentication](/docs/mpp-api/authentication#two-factor-payment--principal) and [Agent registration](/docs/mpp-api/agent-registration).

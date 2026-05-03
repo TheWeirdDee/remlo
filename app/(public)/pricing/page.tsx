@@ -1,5 +1,6 @@
 import * as React from 'react'
 import { Check, Info } from 'lucide-react'
+import { WaitlistForm } from '@/components/marketing/WaitlistForm'
 
 export const metadata = { title: 'Pricing | Remlo' }
 
@@ -101,6 +102,16 @@ export default function PricingPage() {
       <p className="text-center text-xs text-[var(--text-muted)]">
         Browse the full endpoint catalogue at <a href="https://www.remlo.xyz/openapi.json" className="text-[var(--accent)] hover:underline">openapi.json</a> or via <code className="font-mono">npx -y agentcash@latest discover https://www.remlo.xyz</code>.
       </p>
+
+      <div className="mx-auto max-w-xl">
+        <WaitlistForm
+          source="pricing"
+          variant="card"
+          heading="Want production-tier rails?"
+          description="We're rolling Pro and Enterprise out by application. Drop your email and we'll reach out when production payroll is ready for your team."
+          ctaLabel="Request access"
+        />
+      </div>
     </div>
   )
 }

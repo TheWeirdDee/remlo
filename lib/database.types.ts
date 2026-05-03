@@ -511,6 +511,9 @@ export interface Database {
           revoked_at: string | null
           signing_secret: string | null
           signing_secret_rotated_at: string | null
+          identity_kind: 'hmac' | 'erc8004_tempo'
+          erc8004_agent_id: string | null
+          erc8004_owner_address: string | null
         }
         Insert: {
           id?: string
@@ -524,6 +527,9 @@ export interface Database {
           revoked_at?: string | null
           signing_secret?: string | null
           signing_secret_rotated_at?: string | null
+          identity_kind?: 'hmac' | 'erc8004_tempo'
+          erc8004_agent_id?: string | null
+          erc8004_owner_address?: string | null
         }
         Update: {
           id?: string
@@ -537,6 +543,48 @@ export interface Database {
           revoked_at?: string | null
           signing_secret?: string | null
           signing_secret_rotated_at?: string | null
+          identity_kind?: 'hmac' | 'erc8004_tempo'
+          erc8004_agent_id?: string | null
+          erc8004_owner_address?: string | null
+        }
+        Relationships: []
+      }
+      waitlist_subscribers: {
+        Row: {
+          email: string
+          confirm_token: string
+          confirmed_at: string | null
+          unsubscribed_at: string | null
+          source: string
+          referrer: string | null
+          ip_inet: string | null
+          resend_contact_id: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          email: string
+          confirm_token: string
+          confirmed_at?: string | null
+          unsubscribed_at?: string | null
+          source?: string
+          referrer?: string | null
+          ip_inet?: string | null
+          resend_contact_id?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          email?: string
+          confirm_token?: string
+          confirmed_at?: string | null
+          unsubscribed_at?: string | null
+          source?: string
+          referrer?: string | null
+          ip_inet?: string | null
+          resend_contact_id?: string | null
+          created_at?: string
+          updated_at?: string
         }
         Relationships: []
       }

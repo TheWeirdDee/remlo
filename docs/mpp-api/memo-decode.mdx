@@ -43,3 +43,7 @@ curl -X POST https://remlo.xyz/api/mpp/memo/decode \
 
 **Notes**
 The system gracefully fails on malformed hex strings. Always sanitize inputs to an exact 32 bytes representing the standard `paic` identifier structure before calling.
+
+## Authorization
+
+Pure decoder over public on-chain bytes. Payment proof is sufficient. See [Authentication](/docs/mpp-api/authentication#two-factor-payment--principal).

@@ -5,6 +5,7 @@ import {
   fetchAgentURI,
   type TempoReputationSummary,
 } from '@/lib/reputation/erc8004'
+import { WaitlistForm } from '@/components/marketing/WaitlistForm'
 
 /**
  * /agents — public discovery page.
@@ -167,6 +168,16 @@ await reputationRegistry.giveFeedback({
   feedbackHash: keccak256(bodyText),
 })`}
         </pre>
+      </section>
+
+      <section className="space-y-4">
+        <WaitlistForm
+          source="agents"
+          variant="card"
+          heading="Building an agent on Remlo?"
+          description="We send a quarterly note covering new endpoints, schema changes, and reputation graph updates. Worth subscribing if your agent transacts here."
+          ctaLabel="Keep me posted"
+        />
       </section>
 
       <section className="space-y-3">

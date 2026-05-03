@@ -14,13 +14,20 @@ export async function listAuthorizations(employerId: string): Promise<AgentAutho
   return data ?? []
 }
 
-export async function createAuthorization(input: {
+export interface CreateAuthorizationInput {
   employer_id: string
   label: string
   agent_identifier: string
   per_tx_cap_usd: number
   per_day_cap_usd: number
-}): Promise<AgentAuthorization | null> {
+  identity_kind?: 'hmac' | 'erc8004_tempo'
+  erc8004_agent_id?: string | null
+  erc8004_owner_address?: string | null
+}
+
+export async function createAuthorization(
+  input: CreateAuthorizationInput,
+): Promise<AgentAuthorization | null> {
   const client = createServerClient()
   const { data } = await client
     .from('employer_agent_authorizations')

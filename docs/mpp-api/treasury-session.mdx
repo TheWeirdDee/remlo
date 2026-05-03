@@ -37,3 +37,7 @@ npx agentcash try https://remlo.xyz
 
 **Notes**
 Once open, subsequent queries like `yield-rates` and `optimize` utilize the returned `sessionToken` dynamically. Sessions expire if gas reserves are stripped down to 0, or by an explicit close execution, releasing unspent locked funds back to the user context.
+
+## Authorization
+
+All four actions (balance, yield, headcount, rebalance) require the employer (Privy) or an authorized Tier 1 / Tier 2 agent. The `rebalance` action moves on-chain capital and is always principal-bound — payment alone is never enough. See [Authentication](/docs/mpp-api/authentication#two-factor-payment--principal).

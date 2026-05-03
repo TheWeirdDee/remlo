@@ -15,6 +15,8 @@ import {
 import { PublicNavbar } from '@/components/layout/PublicNavbar'
 import { PublicFooter } from '@/components/layout/PublicFooter'
 import { HyperspeedHeroBackground } from '@/components/marketing/HyperspeedHeroBackground'
+import { WaitlistForm } from '@/components/marketing/WaitlistForm'
+import { WaitlistConfirmedBanner } from '@/components/marketing/WaitlistConfirmedBanner'
 
 function useForceDark() {
   React.useEffect(() => {
@@ -922,6 +924,33 @@ function FAQSection() {
   )
 }
 
+function WaitlistSection() {
+  return (
+    <section id="waitlist" className="px-6 py-24 sm:py-32">
+      <div className="mx-auto max-w-3xl text-center">
+        <p className="text-xs font-semibold uppercase tracking-[0.28em] text-[var(--accent)]">
+          Mainnet launch
+        </p>
+        <h2 className="mt-3 text-3xl font-bold tracking-tight text-[var(--text-primary)] sm:text-4xl">
+          Be first when Remlo opens to production payroll.
+        </h2>
+        <p className="mt-4 text-base text-[var(--text-secondary)] leading-relaxed">
+          The full stack — Tempo + Solana settlement, agent rails, ERC-8004 reputation, Bridge fiat off-ramp — is live on testnets today. Drop your email and we&apos;ll let you know the moment your team can move from sandbox to production.
+        </p>
+      </div>
+      <div className="mx-auto mt-8 max-w-xl">
+        <WaitlistForm
+          source="landing"
+          variant="card"
+          heading="Join the launch waitlist"
+          description="One confirmation email. We use it to send launch news, early-access invites, and nothing else."
+          ctaLabel="Notify me"
+        />
+      </div>
+    </section>
+  )
+}
+
 export default function LandingPage() {
   useForceDark()
 
@@ -936,7 +965,9 @@ export default function LandingPage() {
       <ComparisonSection />
       <TestimonialsSection />
       <PricingSection />
+      <WaitlistSection />
       <FAQSection />
+      <WaitlistConfirmedBanner />
       <PublicFooter />
     </div>
   )

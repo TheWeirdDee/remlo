@@ -44,3 +44,13 @@ npx agentcash get https://remlo.xyz/api/mpp/payslips/batch-123/emp-456
 
 **Notes**
 Used intrinsically by the Employee Portal to render PDF payslips for tax compliance. The agent can use this payload to build custom `.docx` or `.pdf` templates locally.
+
+## Authorization
+
+Discloses PII — caller must be one of:
+
+- **Employer (Privy)** — owner of the payroll run, OR
+- **Tier 1 / Tier 2 agent** — authorized by that employer, OR
+- **Employee (Privy)** — whose `user_id` matches the requested `employeeId`.
+
+Without principal proof the request is 401, even if payment was paid. See [Authentication](/docs/mpp-api/authentication#two-factor-payment--principal).

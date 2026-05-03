@@ -338,6 +338,26 @@ export async function fetchAgentURI(agentIdStr: string): Promise<string | null> 
   }
 }
 
+/**
+ * Resolve the EOA that owns an ERC-8004 agent token. Returns null if the
+ * token doesn't exist or the call reverts. The caller should treat null as
+ * "agent not registered" and ask the operator to register first.
+ */
+export async function fetchAgentOwner(agentIdStr: string): Promise<string | null> {
+  try {
+    const publicClient = getTempoPublicClient()
+    const owner = (await publicClient.readContract({
+      address: getIdentityRegistryAddress(),
+      abi: IdentityRegistryAbi,
+      functionName: 'ownerOf',
+      args: [BigInt(agentIdStr)],
+    })) as string
+    return owner
+  } catch {
+    return null
+  }
+}
+
 /** Validation Registry reads — wired for dashboard parity; writes are stubbed. */
 export async function fetchValidationSummary(agentIdStr: string): Promise<{
   count: bigint

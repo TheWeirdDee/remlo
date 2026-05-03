@@ -1,0 +1,139 @@
+---
+title: "Agent registration"
+description: "How agents authenticate against Remlo's paid endpoints — Tier 1 (HMAC) and Tier 2 (ERC-8004 + ECDSA)."
+---
+
+Paying for an MPP endpoint isn't enough. Every endpoint that mutates an employer's state — running payroll, paying out from a treasury, off-ramping to fiat — also requires the caller to prove **which principal** the action is on behalf of. Otherwise, anyone with $0.05 USDC could call `/api/mpp/agent/pay` and drain any treasury they could find.
+
+There are two flavors of agent identity. Pick one when authorizing an agent on `/dashboard/settings/agents`.
+
+## Tier 1 — HMAC
+
+Best when an employer is integrating one specific agent and wants the simplest possible setup. The employer mints a per-agent `signing_secret` from the dashboard and shares it with the agent operator. From there, every request includes:
+
+```http
+X-Agent-Identifier: payroll-bot
+X-Agent-Timestamp: 1761936000000
+X-Agent-Signature: 7c3a...e14b
+```
+
+The signature is HMAC-SHA256:
+
+```ts
+import crypto from 'crypto'
+
+function signTier1(rawBody: string, secret: string) {
+  const ts = Date.now().toString()
+  const sig = crypto.createHmac('sha256', secret).update(`${ts}.${rawBody}`).digest('hex')
+  return { 'X-Agent-Timestamp': ts, 'X-Agent-Signature': sig }
+}
+```
+
+Server checks that:
+
+1. The identifier matches an active row in `employer_agent_authorizations` for the employer in the request body.
+2. The timestamp is within five minutes of server time (replay window).
+3. The HMAC verifies against the row's `signing_secret` over `${X-Agent-Timestamp}.${rawBody}`.
+4. The amount fits the row's `per_tx_cap_usd` and rolling `per_day_cap_usd`.
+
+If the secret leaks, the employer rotates it from the dashboard. Until rotation, the secret is effectively the agent's password. Treat it like any other production credential.
+
+## Tier 2 — ERC-8004 + ECDSA
+
+Best when an agent transacts with multiple Remlo employers, or an operator wants their agent's reputation to travel across protocols. The agent registers once on the ERC-8004 IdentityRegistry on Tempo and from then on signs every Remlo request with the EOA that owns the token.
+
+### Step 1: Register on Tempo
+
+Visit [`/agents/register`](https://www.remlo.xyz/agents/register) and follow the three-step flow, or call `register(agentURI)` directly:
+
+```ts
+import { createWalletClient, http, defineChain } from 'viem'
+import { privateKeyToAccount } from 'viem/accounts'
+import { IdentityRegistryAbi } from '@remlo/erc8004'
+
+const tempo = defineChain({
+  id: 42431,
+  name: 'Tempo Moderato',
+  nativeCurrency: { name: 'USD', symbol: 'USD', decimals: 6 },
+  rpcUrls: { default: { http: ['https://rpc.moderato.tempo.xyz'] } },
+})
+
+const wallet = createWalletClient({
+  account: privateKeyToAccount(process.env.AGENT_KEY as `0x${string}`),
+  chain: tempo,
+  transport: http(),
+})
+
+const txHash = await wallet.writeContract({
+  address: process.env.NEXT_PUBLIC_ERC8004_IDENTITY_REGISTRY as `0x${string}`,
+  abi: IdentityRegistryAbi,
+  functionName: 'register',
+  args: ['https://my-agent.example/.well-known/agent-registration.json'],
+})
+```
+
+Pull the new `agentId` from the receipt's `AgentRegistered` event.
+
+### Step 2: Authorize on a Remlo employer
+
+The employer goes to `/dashboard/settings/agents`, picks **Tier 2 — ERC-8004**, pastes your agentId, and sets caps. Remlo reads `IdentityRegistry.ownerOf(agentId)` and caches the EOA address on the authorization row.
+
+### Step 3: Sign requests
+
+Build the canonical Remlo Tier 2 message and sign with the owning EOA's private key:
+
+```ts
+import crypto from 'crypto'
+import { createWalletClient } from 'viem'
+
+function buildTier2Message(req: {
+  method: string
+  url: string
+  timestampMs: string
+  rawBody: string
+}) {
+  const bodyHash = crypto.createHash('sha256').update(req.rawBody).digest('hex')
+  return [
+    'Remlo MPP Tier 2 v1',
+    `Method: ${req.method.toUpperCase()}`,
+    `URL: ${req.url}`,
+    `Timestamp: ${req.timestampMs}`,
+    `Body-SHA256: ${bodyHash}`,
+  ].join('\n')
+}
+
+const ts = Date.now().toString()
+const message = buildTier2Message({
+  method: 'POST',
+  url: 'https://www.remlo.xyz/api/mpp/agent/pay',
+  timestampMs: ts,
+  rawBody,
+})
+const signature = await wallet.signMessage({ message })
+
+const headers = {
+  'X-Agent-Identifier': `erc8004:tempo:${agentId}`,
+  'X-Agent-Timestamp': ts,
+  'X-Agent-Signature': signature,
+}
+```
+
+Server recovers the signer from the signature and compares to the cached owner address.
+
+## Caps and revocation
+
+Tier 1 and Tier 2 share the same `per_tx_cap_usd` and `per_day_cap_usd` caps. When an agent is revoked, the row is marked inactive — subsequent requests return 403 immediately, regardless of payment.
+
+A Tier 2 token transfer (the agent's EOA changes) is **not** automatically reflected. Re-add the authorization to refresh the cached owner address. The current behavior is "fail closed": an old owner signature stops verifying as soon as the cached column drifts from the registry.
+
+## Choosing a tier
+
+| Question | Tier 1 | Tier 2 |
+|---|---|---|
+| Setting up one agent for one employer fast? | ✓ | |
+| Want to transact with multiple Remlo employers? | | ✓ |
+| Want reputation portable across ERC-8004-aware systems? | | ✓ |
+| Worried about secret leakage and rotation logistics? | | ✓ |
+| Don't want to write any chain transactions? | ✓ | |
+
+You can always start on Tier 1 and migrate to Tier 2 — the employer-side row is replaceable without losing payment history.

@@ -5,29 +5,33 @@ import { getEmployerById } from '@/lib/queries/employers'
 import { createServerClient } from '@/lib/supabase-server'
 import { byteaMemoToHex } from '@/lib/memo'
 import { getEmployerOnchainIdentity, getEmployerOnchainIdentityError } from '@/lib/employer-onchain'
-import { getMppCallerEmployer } from '@/lib/mpp-auth'
+import { requireEmployerCaller } from '@/lib/mpp-auth'
 
 const DEPLOYER_KEY = process.env.REMLO_AGENT_PRIVATE_KEY as `0x${string}`
+
+interface ExecuteBody {
+  payrollRunId?: string
+}
 
 /**
  * POST /api/mpp/payroll/execute
  * MPP-2 — $1.00 single charge (Tempo rail only).
+ *
  * Executes a pending payroll batch on-chain via PayrollBatcher.
  *
- * Body: { payrollRunId: string }
+ * Authorization: caller must be the employer (Privy) or an employer-authorized
+ * agent (X-Agent-Identifier + HMAC). Without this, anyone with $1 could
+ * execute any pending payroll for any employer (audit C-2).
  */
 export const POST = mppx.charge({ amount: '1.00' })(async (req: Request) => {
-  // SECURITY: x402 payment alone does not prove identity. The caller must
-  // also present a verified Privy JWT that matches the payroll run's
-  // employer owner. This blocks the "any attacker with $1 can execute any
-  // employer's payroll" bypass (audit finding C-2).
-  const caller = await getMppCallerEmployer(req)
-  if (!caller) {
-    return Response.json({ error: 'Unauthorized' }, { status: 401 })
+  const rawBody = await req.text()
+  let body: ExecuteBody
+  try {
+    body = JSON.parse(rawBody) as ExecuteBody
+  } catch {
+    return Response.json({ error: 'Invalid JSON' }, { status: 400 })
   }
-
-  const { payrollRunId } = await req.json() as { payrollRunId: string }
-
+  const { payrollRunId } = body
   if (!payrollRunId) {
     return Response.json({ error: 'payrollRunId required' }, { status: 400 })
   }
@@ -36,9 +40,13 @@ export const POST = mppx.charge({ amount: '1.00' })(async (req: Request) => {
   if (!run) {
     return Response.json({ error: 'Payroll run not found' }, { status: 404 })
   }
-  if (run.employer_id !== caller.id) {
-    return Response.json({ error: 'Forbidden' }, { status: 403 })
-  }
+
+  const auth = await requireEmployerCaller(req, {
+    employerId: run.employer_id,
+    rawBody,
+  })
+  if (!auth.ok) return auth.response
+
   if (run.status !== 'pending') {
     return Response.json({ error: `Payroll run is ${run.status}, not pending` }, { status: 409 })
   }
@@ -69,14 +77,14 @@ export const POST = mppx.charge({ amount: '1.00' })(async (req: Request) => {
   const walletMap = new Map<string, string>(
     (employees ?? [])
       .filter((e) => e.wallet_address)
-      .map((e) => [e.id, e.wallet_address as string])
+      .map((e) => [e.id, e.wallet_address as string]),
   )
 
   const missing = employeeIds.filter((id) => !walletMap.has(id))
   if (missing.length > 0) {
     return Response.json(
       { error: `${missing.length} employees missing wallet addresses` },
-      { status: 422 }
+      { status: 422 },
     )
   }
 
@@ -86,7 +94,7 @@ export const POST = mppx.charge({ amount: '1.00' })(async (req: Request) => {
   if (memos.some((memo) => !memo)) {
     return Response.json(
       { error: 'One or more payment items are missing a valid 32-byte payroll memo' },
-      { status: 422 }
+      { status: 422 },
     )
   }
   const walletClient = getServerWalletClient(DEPLOYER_KEY)
@@ -109,5 +117,6 @@ export const POST = mppx.charge({ amount: '1.00' })(async (req: Request) => {
     recipient_count: recipients.length,
     employer_admin_wallet: onchainIdentity.adminWallet,
     employer_account_id: onchainIdentity.employerAccountId,
+    caller: auth.caller.kind,
   })
 })

@@ -2,33 +2,39 @@ import { mppx } from '@/lib/mpp'
 import { treasury, yieldRouter } from '@/lib/contracts'
 import { getEmployerById } from '@/lib/queries/employers'
 import { getEmployerOnchainIdentity, getEmployerOnchainIdentityError } from '@/lib/employer-onchain'
-import { getMppCallerEmployer } from '@/lib/mpp-auth'
+import { requireEmployerCaller } from '@/lib/mpp-auth'
+
+interface OptimizeBody {
+  employerId?: string
+  question?: string
+}
 
 /**
  * POST /api/mpp/treasury/optimize
- * MPP-10 — $0.10 charge
- * Analyzes employer treasury and yield positions, returns optimization recommendations.
- * Accepts an optional natural-language question and returns a richer optimization summary.
+ * MPP-10 — $0.10 charge.
  *
- * Body: { employerId: string, question?: string }
+ * Analyzes employer treasury and yield positions and returns optimization
+ * recommendations.
+ *
+ * Authorization: caller must be the employer (Privy) or an employer-authorized
+ * agent (X-Agent-Identifier + HMAC). Treasury financials are not public
+ * (audit C-11).
  */
 export const POST = mppx.charge({ amount: '0.10' })(async (req: Request) => {
-  // SECURITY: treasury financials are not public. Require the caller to own
-  // the employer record they're querying (audit C-11).
-  const caller = await getMppCallerEmployer(req)
-  if (!caller) {
-    return Response.json({ error: 'Unauthorized' }, { status: 401 })
+  const rawBody = await req.text()
+  let body: OptimizeBody
+  try {
+    body = JSON.parse(rawBody) as OptimizeBody
+  } catch {
+    return Response.json({ error: 'Invalid JSON' }, { status: 400 })
   }
-
-  const { employerId, question } = await req.json() as { employerId: string; question?: string }
-
+  const { employerId, question } = body
   if (!employerId) {
     return Response.json({ error: 'employerId required' }, { status: 400 })
   }
 
-  if (employerId !== caller.id) {
-    return Response.json({ error: 'Forbidden' }, { status: 403 })
-  }
+  const auth = await requireEmployerCaller(req, { employerId, rawBody })
+  if (!auth.ok) return auth.response
 
   const employer = await getEmployerById(employerId)
   if (!employer) {
@@ -53,30 +59,28 @@ export const POST = mppx.charge({ amount: '0.10' })(async (req: Request) => {
   const totalUsd = availableUsd + lockedUsd
   const apyPercent = Number(apy) / 100
 
-  // Build optimization recommendations based on current state
   const recommendations: string[] = []
   let recommendedAllocation = allocation.map(Number)
 
   if (availableUsd > lockedUsd * 2) {
     recommendations.push(
       `Idle liquidity: $${availableUsd.toFixed(2)} available vs $${lockedUsd.toFixed(2)} locked. ` +
-      `Consider depositing ${Math.floor(availableUsd * 0.5).toFixed(2)} USDB to yield at ${apyPercent}% APY.`
+        `Consider depositing ${Math.floor(availableUsd * 0.5).toFixed(2)} USDB to yield at ${apyPercent}% APY.`,
     )
-    // Shift 10% more toward yield
     recommendedAllocation = recommendedAllocation.map((v, i) =>
-      i === 0 ? Math.max(0, v - 10) : v + 10
+      i === 0 ? Math.max(0, v - 10) : v + 10,
     )
   }
 
   if (apyPercent < 3.0) {
     recommendations.push(
-      `Current APY ${apyPercent}% is below target 3.7%. Consider rebalancing to USDB strategy.`
+      `Current APY ${apyPercent}% is below target 3.7%. Consider rebalancing to USDB strategy.`,
     )
   }
 
   if (Number(accrued) > 0) {
     recommendations.push(
-      `$${(Number(accrued) / 1e6).toFixed(6)} accrued yield ready to distribute.`
+      `$${(Number(accrued) / 1e6).toFixed(6)} accrued yield ready to distribute.`,
     )
   }
 
@@ -112,5 +116,6 @@ export const POST = mppx.charge({ amount: '0.10' })(async (req: Request) => {
     recommended_allocation: recommendedAllocation,
     projected_annual_yield_usd: projectedAnnualYieldUsd,
     analyzedAt: new Date().toISOString(),
+    caller: auth.caller.kind,
   })
 })

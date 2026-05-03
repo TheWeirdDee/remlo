@@ -121,3 +121,60 @@ If verification fails, the server returns 402 again with an error string explain
 Remlo doesn't issue API keys for paid endpoints because the protocol already provides a stronger primitive: every request carries a fresh, signed proof of payment. An agent's wallet is its identity. There's nothing to leak that wouldn't also be a key to drain the agent's wallet.
 
 For endpoints that need an authenticated principal (compliance reports for a specific employer, payroll execution against a specific treasury), Remlo layers a Privy JWT on top of the payment proof. The payment is the toll; the JWT is the identity. Both are required.
+
+## Two-factor: payment + principal
+
+For any endpoint that mutates employer state or discloses scoped data, Remlo requires both a payment proof AND a principal proof. The matrix:
+
+| Endpoint shape | Payment proof | Principal proof |
+|---|---|---|
+| Public reads (`yield-rates`, `memo/decode`) | Yes | Not required |
+| Employer-scoped reads (`treasury/optimize`, `payroll/status`, `escrow/status`) | Yes | Privy JWT (employer owner) **or** Tier 1 / Tier 2 agent proof |
+| Employer-scoped writes (`payroll/execute`, `agent/pay`, `bridge/offramp`, `agent/session/treasury rebalance`, `escrow/post`) | Yes | Privy JWT (employer owner) **or** Tier 1 / Tier 2 agent proof + caps |
+| Employee-scoped reads (`payslips/[runId]/[employeeId]`) | Yes | Privy JWT (employee owner) **or** the run's employer (Privy / agent) |
+
+Without the principal proof, an attacker with $0.05 USDC could call `agent/pay` and drain any employer's treasury. Payment is service revenue, not authorization.
+
+There are two flavors of agent principal proof. See [agent-registration](/docs/mpp-api/agent-registration) for the full setup.
+
+### Tier 1 — HMAC
+
+The employer issues a `signing_secret` from their dashboard. The agent computes:
+
+```
+HMAC-SHA256(signing_secret, `${X-Agent-Timestamp}.${rawBody}`)
+```
+
+and sends three headers:
+
+```
+X-Agent-Identifier: <whatever the employer registered>
+X-Agent-Timestamp: <unix milliseconds>
+X-Agent-Signature: <hex>
+```
+
+Stateless on the server, no chain round-trip, replay window is five minutes.
+
+### Tier 2 — ERC-8004 + ECDSA
+
+The agent registered an ERC-8004 Identity token on Tempo. The EOA that owns the token signs a canonical Remlo message:
+
+```
+Remlo MPP Tier 2 v1
+Method: <UPPERCASE METHOD>
+URL: <full request URL>
+Timestamp: <unix milliseconds>
+Body-SHA256: <hex of sha256(rawBody)>
+```
+
+and sends:
+
+```
+X-Agent-Identifier: erc8004:tempo:<agentId>
+X-Agent-Timestamp: <unix milliseconds>
+X-Agent-Signature: 0x<65-byte ECDSA signature>
+```
+
+Server resolves the agent's owner address from the cached authorization row (refreshed via `IdentityRegistry.ownerOf` on registration), recovers the signer from the signature, and rejects on mismatch.
+
+Tier 2 means an agent has one identity across every Remlo employer who authorizes them, and reputation accrues to the on-chain agentId across every system that reads ERC-8004 — not just Remlo.

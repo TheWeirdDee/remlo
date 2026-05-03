@@ -4,6 +4,7 @@ import { IBM_Plex_Mono } from 'next/font/google'
 import { ThemeProvider } from '@/components/providers/ThemeProvider'
 import { PrivyClientProvider } from '@/components/providers/PrivyClientProvider'
 import { QueryClientProvider } from '@/components/providers/QueryClientProvider'
+import { CookieConsentProvider } from '@/components/legal/CookieConsentProvider'
 import { Toaster } from 'sonner'
 import './globals.css'
 
@@ -59,18 +60,20 @@ export default function RootLayout({
         <QueryClientProvider>
         <PrivyClientProvider>
           <ThemeProvider>
-            {children}
-            <Toaster
-              position="bottom-right"
-              duration={4000}
-              toastOptions={{
-                style: {
-                  background: 'var(--bg-overlay)',
-                  border: '1px solid var(--border-default)',
-                  color: 'var(--text-primary)',
-                },
-              }}
-            />
+            <CookieConsentProvider>
+              {children}
+              <Toaster
+                position="bottom-right"
+                duration={4000}
+                toastOptions={{
+                  style: {
+                    background: 'var(--bg-overlay)',
+                    border: '1px solid var(--border-default)',
+                    color: 'var(--text-primary)',
+                  },
+                }}
+              />
+            </CookieConsentProvider>
           </ThemeProvider>
         </PrivyClientProvider>
         </QueryClientProvider>

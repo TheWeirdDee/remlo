@@ -36,3 +36,7 @@ npx agentcash stream https://remlo.xyz/api/mpp/employee/balance/stream
 
 **Notes**
 Ensure your client can handle reconnection gracefully. The session will close if the locked reserve is depleted.
+
+## Authorization
+
+The stream emits a single employee's accrual — caller must be the employee (Privy) or the employer / authorized agent that owns them. See [Authentication](/docs/mpp-api/authentication#two-factor-payment--principal).

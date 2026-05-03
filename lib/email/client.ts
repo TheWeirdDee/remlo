@@ -7,6 +7,7 @@ import EmployerWelcomeEmail from '@/emails/EmployerWelcome'
 import PayrollFinalizedEmail from '@/emails/PayrollFinalized'
 import PayrollFailedEmail from '@/emails/PayrollFailed'
 import KycReminderEmail from '@/emails/KycReminder'
+import WaitlistConfirmEmail from '@/emails/WaitlistConfirm'
 
 const FROM_DEFAULT = 'Remlo <hello@remlo.xyz>'
 const REPLY_TO_DEFAULT = 'hello@remlo.xyz'
@@ -17,6 +18,7 @@ type TemplateMap = {
   payroll_finalized: React.ComponentProps<typeof PayrollFinalizedEmail>
   payroll_failed: React.ComponentProps<typeof PayrollFailedEmail>
   kyc_reminder: React.ComponentProps<typeof KycReminderEmail>
+  waitlist_confirm: React.ComponentProps<typeof WaitlistConfirmEmail>
 }
 
 export type EmailTemplate = keyof TemplateMap
@@ -29,6 +31,7 @@ const TEMPLATE_COMPONENTS: {
   payroll_finalized: PayrollFinalizedEmail,
   payroll_failed: PayrollFailedEmail,
   kyc_reminder: KycReminderEmail,
+  waitlist_confirm: WaitlistConfirmEmail,
 }
 
 const SUBJECTS: { [K in EmailTemplate]: (props: TemplateMap[K]) => string } = {
@@ -38,6 +41,7 @@ const SUBJECTS: { [K in EmailTemplate]: (props: TemplateMap[K]) => string } = {
     `Payroll broadcast — ${recipientCount} ${recipientCount === 1 ? 'employee' : 'employees'} paid (${companyName})`,
   payroll_failed: ({ companyName }) => `Payroll failed for ${companyName} — action required`,
   kyc_reminder: ({ companyName }) => `${companyName} is waiting on your identity check`,
+  waitlist_confirm: () => 'Confirm your spot on the Remlo waitlist',
 }
 
 export interface SendEmailInput<K extends EmailTemplate = EmailTemplate> {

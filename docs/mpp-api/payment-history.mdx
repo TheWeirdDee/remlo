@@ -45,3 +45,7 @@ curl -H "Authorization: L402 <YOUR_TX_HASH>" \
 
 **Notes**
 This endpoint only returns off-chain index records from Supabase. To decode the on-chain payload, pass the returned `txHash` to the `memo/decode` endpoint.
+
+## Authorization
+
+PII — caller must be the employee (Privy) themselves, or the employer that owns them (Privy / Tier 1 / Tier 2 agent). See [Authentication](/docs/mpp-api/authentication#two-factor-payment--principal).
