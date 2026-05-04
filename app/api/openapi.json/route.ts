@@ -168,7 +168,7 @@ const spec = {
           },
         ],
         requestBody: {
-          required: false,
+          required: true,
           content: {
             'application/json': {
               schema: {
@@ -395,7 +395,7 @@ const spec = {
         operationId: 'streamEmployeeBalance',
         tags: ['Employee'],
         requestBody: {
-          required: false,
+          required: true,
           content: {
             'application/json': {
               schema: {
@@ -470,7 +470,7 @@ const spec = {
         operationId: 'getPayslip',
         tags: ['Payroll'],
         requestBody: {
-          required: false,
+          required: true,
           content: {
             'application/json': {
               schema: {
@@ -610,7 +610,7 @@ const spec = {
         operationId: 'getEmployeeHistory',
         tags: ['Employee'],
         requestBody: {
-          required: false,
+          required: true,
           content: {
             'application/json': {
               schema: {
@@ -840,7 +840,7 @@ const spec = {
         operationId: 'getComplianceList',
         tags: ['Compliance'],
         requestBody: {
-          required: false,
+          required: true,
           content: {
             'application/json': {
               schema: {
@@ -1085,7 +1085,7 @@ const spec = {
         operationId: 'escrowStatus',
         tags: ['Agent'],
         requestBody: {
-          required: false,
+          required: true,
           content: {
             'application/json': {
               schema: {
