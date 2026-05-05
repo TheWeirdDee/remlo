@@ -1,0 +1,94 @@
+---
+title: "ATXP"
+description: "Agent Transaction Protocol. Self registered, funded agent accounts that pay Remlo via x402."
+---
+
+ATXP is an agent side payment SDK from Circuit and Chisel. Like AgentCash and Sponge, it's an agent side wallet — Remlo doesn't depend on it. ATXP's distinguishing feature is the self serve onboarding: `npx atxp agent register` provisions a new agent account with a connection string, an Ethereum wallet, an `{agentId}@atxp.email` mailbox, and $5 in starter credits, with no human approval step.
+
+## Why ATXP
+
+Three things make ATXP useful for paying Remlo:
+
+1. **Self registration.** A single CLI command produces a fully funded agent account. Useful when you want to script an end to end demo without first standing up a wallet by hand.
+2. **x402 ecosystem support.** The `@atxp/x402` adapter wraps any fetch function so it auto handles HTTP 402 challenges. ATXP clients can call any x402 compatible server, including Remlo's `/api/mpp/*` routes, with zero server side ATXP code.
+3. **Multiple account backends.** ATXP accounts work, but you can also bring your own Base, Solana, Polygon, or Worldchain wallet via the matching `@atxp/base`, `@atxp/solana`, etc. adapter.
+
+## Setup
+
+```bash
+npx atxp agent register
+```
+
+Prints a connection string of the form `https://accounts.atxp.ai?connection_token=<token>&account_id=<id>`. Save it as `ATXP_CONNECTION` in your environment.
+
+```bash
+export ATXP_CONNECTION="https://accounts.atxp.ai?connection_token=..."
+```
+
+Top up later with `npx atxp fund` (returns deposit addresses + a shareable payment link). Check balance with `npx atxp balance`.
+
+## Calling Remlo from an ATXP agent
+
+For Remlo's free read endpoints (directory, profile, reputation), no payment is needed — call them directly with `fetch`. For paid endpoints, wrap your fetch with the x402 adapter:
+
+```typescript
+import { atxpClient, ATXPAccount } from "@atxp/client"
+import { wrapWithX402 } from "@atxp/x402"
+
+const account = new ATXPAccount(process.env.ATXP_CONNECTION!)
+
+const paidFetch = wrapWithX402({ account })
+
+const res = await paidFetch(
+  "https://www.remlo.xyz/api/mpp/treasury/yield-rates",
+  { method: "GET" },
+)
+
+const body = await res.json()
+```
+
+`wrapWithX402` reads the 402 response, signs a USDC payment proof with the underlying account, and retries the request transparently. Your agent code never touches the protocol layer.
+
+For paid endpoints that require a principal (Tier 1 HMAC or Tier 2 ECDSA / Ed25519), include those headers on the original request — they pass through the wrapper unchanged:
+
+```typescript
+const res = await paidFetch(
+  "https://www.remlo.xyz/api/mpp/agent/pay",
+  {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Agent-Identifier": "erc8004:tempo:42",
+      "X-Agent-Timestamp": String(Date.now()),
+      "X-Agent-Signature": "0x...",
+    },
+    body: JSON.stringify({ /* charge body */ }),
+  },
+)
+```
+
+## Bring your own chain account
+
+If you already have a Base or Solana wallet, you can pay Remlo through ATXP without using their hosted account:
+
+```typescript
+import { atxpClient } from "@atxp/client"
+import { BaseAccount } from "@atxp/base"
+import { wrapWithX402 } from "@atxp/x402"
+
+const account = new BaseAccount(
+  process.env.BASE_RPC_URL!,
+  process.env.BASE_PRIVATE_KEY!,
+)
+
+const paidFetch = wrapWithX402({ account })
+```
+
+Same `paidFetch` shape, different account type. Solana, Polygon, and Worldchain follow the same pattern with their respective `@atxp/<chain>` packages.
+
+## What ATXP isn't
+
+- It isn't a dependency for Remlo. We don't ship code that imports `@atxp/client` or `@atxp/express`. ATXP is one of several wallet flavors that can call our endpoints.
+- It isn't a server side framework for Remlo. ATXP's `@atxp/express` middleware is Express specific and exists for monetizing your own MCP server, not for receiving payments at Remlo's existing routes.
+- It isn't an authentication system. Identity for principal bound endpoints uses the standard Remlo Tier 1 / Tier 2 headers, signed independently of ATXP.
+- It isn't required to be in ATXP's MCP catalog to pay Remlo. The `@atxp/x402` adapter calls any 402 compatible URL, regardless of catalog status.

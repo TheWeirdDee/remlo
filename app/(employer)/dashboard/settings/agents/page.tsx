@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Bot, Plus, Trash2, Shield, Loader2 } from 'lucide-react'
+import { Bot, Plus, Trash2, Shield, Loader2, Search, BadgeCheck, ExternalLink } from 'lucide-react'
 import { toast } from 'sonner'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Button } from '@/components/ui/button'
@@ -21,12 +21,57 @@ interface AgentAuthorization {
   active: boolean
   created_at: string
   revoked_at: string | null
-  identity_kind?: 'hmac' | 'erc8004_tempo'
+  identity_kind?: 'hmac' | 'erc8004_tempo' | 'sas_solana'
+  solana_pubkey?: string | null
   erc8004_agent_id?: string | null
   erc8004_owner_address?: string | null
 }
 
-type IdentityKind = 'hmac' | 'erc8004_tempo'
+interface AgentReputation {
+  total_feedback_count: number
+  average_score: number | null
+  feedback_by_tag: Record<string, number>
+  latest_feedback_at: string | null
+}
+
+interface AgentProfile {
+  agent_identifier: string
+  agent_id: string
+  chain: 'tempo' | 'solana'
+  owner_address: string
+  display_name: string | null
+  description: string | null
+  endpoint: string | null
+  capabilities: string[]
+  contact_url: string | null
+  registered_at: string | null
+  last_refreshed_at: string | null
+  reputation?: AgentReputation | null
+}
+
+interface ProfileResolution {
+  kind: 'remlo_registered' | 'unregistered'
+  profile: AgentProfile
+}
+
+interface DirectoryResponse {
+  agents: AgentProfile[]
+  next_cursor: string | null
+  listed_at: string
+}
+
+type IdentityKind = 'hmac' | 'erc8004_tempo' | 'sas_solana'
+
+const SOLANA_PUBKEY_REGEX = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/
+
+function useDebouncedValue<T>(value: T, delayMs: number): T {
+  const [debounced, setDebounced] = React.useState(value)
+  React.useEffect(() => {
+    const t = setTimeout(() => setDebounced(value), delayMs)
+    return () => clearTimeout(t)
+  }, [value, delayMs])
+  return debounced
+}
 
 export default function AgentsSettingsPage(): React.ReactElement {
   const { data: employer } = useEmployer()
@@ -47,8 +92,32 @@ export default function AgentsSettingsPage(): React.ReactElement {
     label: '',
     agent_identifier: '',
     erc8004_agent_id: '',
+    solana_pubkey: '',
     per_tx_cap_usd: '100',
     per_day_cap_usd: '500',
+  })
+  const [browseOpen, setBrowseOpen] = React.useState(false)
+
+  // Live profile lookup as the employer types an ERC-8004 agent ID. Hits the
+  // public /api/agents/profile/erc8004:tempo:<id> endpoint with a 350ms
+  // debounce so we don't pound the Tempo RPC on every keystroke. Returns
+  // either a Remlo-registered profile (rich) or an "unregistered" fallback
+  // (just the on-chain owner). 404 surfaces as null.
+  const debouncedAgentId = useDebouncedValue(form.erc8004_agent_id.trim(), 350)
+  const profileQueryEnabled =
+    identityKind === 'erc8004_tempo' && /^\d+$/.test(debouncedAgentId)
+  const profileQuery = useQuery<ProfileResolution | null>({
+    queryKey: ['agent-profile-resolve', debouncedAgentId],
+    queryFn: async () => {
+      const res = await fetch(
+        `/api/agents/profile/${encodeURIComponent(`erc8004:tempo:${debouncedAgentId}`)}`,
+      )
+      if (res.status === 404) return null
+      if (!res.ok) throw new Error(`Lookup failed (${res.status})`)
+      return (await res.json()) as ProfileResolution
+    },
+    enabled: profileQueryEnabled,
+    staleTime: 60_000,
   })
 
   const create = useMutation({
@@ -62,13 +131,21 @@ export default function AgentsSettingsPage(): React.ReactElement {
               per_tx_cap_usd: Number(form.per_tx_cap_usd),
               per_day_cap_usd: Number(form.per_day_cap_usd),
             }
-          : {
-              identity_kind: 'hmac' as const,
-              label: form.label,
-              agent_identifier: form.agent_identifier,
-              per_tx_cap_usd: Number(form.per_tx_cap_usd),
-              per_day_cap_usd: Number(form.per_day_cap_usd),
-            }
+          : identityKind === 'sas_solana'
+            ? {
+                identity_kind: 'sas_solana' as const,
+                label: form.label,
+                solana_pubkey: form.solana_pubkey.trim(),
+                per_tx_cap_usd: Number(form.per_tx_cap_usd),
+                per_day_cap_usd: Number(form.per_day_cap_usd),
+              }
+            : {
+                identity_kind: 'hmac' as const,
+                label: form.label,
+                agent_identifier: form.agent_identifier,
+                per_tx_cap_usd: Number(form.per_tx_cap_usd),
+                per_day_cap_usd: Number(form.per_day_cap_usd),
+              }
       return fetchJson(`/api/employers/${employerId}/authorize-agent`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -81,6 +158,7 @@ export default function AgentsSettingsPage(): React.ReactElement {
         label: '',
         agent_identifier: '',
         erc8004_agent_id: '',
+        solana_pubkey: '',
         per_tx_cap_usd: '100',
         per_day_cap_usd: '500',
       })
@@ -109,8 +187,12 @@ export default function AgentsSettingsPage(): React.ReactElement {
   const isErc8004Valid =
     identityKind === 'erc8004_tempo' && /^\d+$/.test(form.erc8004_agent_id.trim())
   const isHmacValid = identityKind === 'hmac' && form.agent_identifier.trim().length > 0
+  const isSolanaValid =
+    identityKind === 'sas_solana' && SOLANA_PUBKEY_REGEX.test(form.solana_pubkey.trim())
   const canSubmit =
-    form.label.trim() && (isErc8004Valid || isHmacValid) && !create.isPending
+    form.label.trim() &&
+    (isErc8004Valid || isHmacValid || isSolanaValid) &&
+    !create.isPending
 
   return (
     <div className="space-y-6">
@@ -131,19 +213,25 @@ export default function AgentsSettingsPage(): React.ReactElement {
             <div
               role="radiogroup"
               aria-label="Identity kind"
-              className="grid gap-2 sm:grid-cols-2"
+              className="grid gap-2 sm:grid-cols-3"
             >
               <KindRadio
                 checked={identityKind === 'hmac'}
                 title="Tier 1 — HMAC"
-                subtitle="You generate an identifier + we issue a signing secret. Fast, single-employer."
+                subtitle="Issue a signing secret. Fast, single-employer."
                 onSelect={() => setIdentityKind('hmac')}
               />
               <KindRadio
                 checked={identityKind === 'erc8004_tempo'}
-                title="Tier 2 — ERC-8004 (Tempo)"
-                subtitle="Agent has a registered ERC-8004 identity. Reputation portable, no shared secret."
+                title="Tier 2 — ERC-8004"
+                subtitle="ERC-8004 identity on Tempo. Reputation portable."
                 onSelect={() => setIdentityKind('erc8004_tempo')}
+              />
+              <KindRadio
+                checked={identityKind === 'sas_solana'}
+                title="Tier 2 — Solana"
+                subtitle="Solana pubkey. Ed25519 signature, no on-chain mint."
+                onSelect={() => setIdentityKind('sas_solana')}
               />
             </div>
           </div>
@@ -157,7 +245,7 @@ export default function AgentsSettingsPage(): React.ReactElement {
                 onChange={(e) => setForm({ ...form, label: e.target.value })}
               />
             </div>
-            {identityKind === 'hmac' ? (
+            {identityKind === 'hmac' && (
               <div className="space-y-1.5">
                 <label className="text-xs text-[var(--text-muted)]">Agent identifier</label>
                 <Input
@@ -170,9 +258,20 @@ export default function AgentsSettingsPage(): React.ReactElement {
                   Anything stable the agent will send as <code className="font-mono">X-Agent-Identifier</code>.
                 </p>
               </div>
-            ) : (
-              <div className="space-y-1.5">
-                <label className="text-xs text-[var(--text-muted)]">ERC-8004 agent ID</label>
+            )}
+            {identityKind === 'erc8004_tempo' && (
+              <div className="space-y-1.5 sm:col-span-2">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs text-[var(--text-muted)]">ERC-8004 agent ID</label>
+                  <button
+                    type="button"
+                    onClick={() => setBrowseOpen(true)}
+                    className="inline-flex items-center gap-1 text-xs text-[var(--accent)] hover:underline"
+                  >
+                    <Search className="h-3 w-3" />
+                    Browse directory
+                  </button>
+                </div>
                 <Input
                   inputMode="numeric"
                   placeholder="e.g. 42"
@@ -187,6 +286,33 @@ export default function AgentsSettingsPage(): React.ReactElement {
                   </a>
                   . We resolve the owner on-chain on submit.
                 </p>
+                <ProfilePreview
+                  enabled={profileQueryEnabled}
+                  loading={profileQuery.isFetching}
+                  data={profileQuery.data ?? null}
+                  error={profileQuery.error}
+                />
+              </div>
+            )}
+            {identityKind === 'sas_solana' && (
+              <div className="space-y-1.5 sm:col-span-2">
+                <label className="text-xs text-[var(--text-muted)]">Solana pubkey</label>
+                <Input
+                  placeholder="e.g. 3N5z9...DfA7"
+                  value={form.solana_pubkey}
+                  onChange={(e) => setForm({ ...form, solana_pubkey: e.target.value })}
+                  className="font-mono text-xs"
+                />
+                <p className="text-[10px] text-[var(--text-muted)]">
+                  Base58-encoded 32-byte Solana public key. The agent signs every Remlo
+                  request with the matching private key (Ed25519). No on-chain mint
+                  required — the pubkey itself is the identity.
+                </p>
+                {form.solana_pubkey.trim() && !SOLANA_PUBKEY_REGEX.test(form.solana_pubkey.trim()) && (
+                  <p className="text-[10px] text-[var(--status-error)]">
+                    Not a valid base58 Solana pubkey (expected 32–44 chars, no 0/O/I/l).
+                  </p>
+                )}
               </div>
             )}
             <div className="space-y-1.5">
@@ -266,19 +392,26 @@ export default function AgentsSettingsPage(): React.ReactElement {
                       <div className="flex items-center gap-2 flex-wrap">
                         <span
                           className={`text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded-full font-medium ${
-                            (auth.identity_kind ?? 'hmac') === 'erc8004_tempo'
-                              ? 'bg-[var(--accent-subtle)] text-[var(--accent)]'
-                              : 'bg-[var(--bg-subtle)] text-[var(--text-muted)]'
+                            (auth.identity_kind ?? 'hmac') === 'hmac'
+                              ? 'bg-[var(--bg-subtle)] text-[var(--text-muted)]'
+                              : 'bg-[var(--accent-subtle)] text-[var(--accent)]'
                           }`}
                         >
-                          {(auth.identity_kind ?? 'hmac') === 'erc8004_tempo'
+                          {auth.identity_kind === 'erc8004_tempo'
                             ? 'Tier 2 · ERC-8004'
-                            : 'Tier 1 · HMAC'}
+                            : auth.identity_kind === 'sas_solana'
+                              ? 'Tier 2 · Solana'
+                              : 'Tier 1 · HMAC'}
                         </span>
                         <p className="font-mono text-xs text-[var(--mono)] break-all">
                           {auth.agent_identifier}
                         </p>
                       </div>
+                      {auth.solana_pubkey && (
+                        <p className="font-mono text-[11px] text-[var(--text-muted)] break-all">
+                          Pubkey: {auth.solana_pubkey}
+                        </p>
+                      )}
                       {auth.erc8004_owner_address && (
                         <p className="font-mono text-[11px] text-[var(--text-muted)] break-all">
                           Owner: {auth.erc8004_owner_address}
@@ -308,6 +441,21 @@ export default function AgentsSettingsPage(): React.ReactElement {
           </div>
         )}
       </div>
+
+      {browseOpen && (
+        <BrowseDirectoryModal
+          onClose={() => setBrowseOpen(false)}
+          onPick={(profile) => {
+            setIdentityKind('erc8004_tempo')
+            setForm((f) => ({
+              ...f,
+              erc8004_agent_id: profile.agent_id,
+              label: f.label.trim() || profile.display_name || `Agent ${profile.agent_id}`,
+            }))
+            setBrowseOpen(false)
+          }}
+        />
+      )}
     </div>
   )
 }
@@ -335,5 +483,270 @@ function KindRadio({ checked, title, subtitle, onSelect }: KindRadioProps) {
       <span className="text-sm font-semibold text-[var(--text-primary)]">{title}</span>
       <span className="text-[11px] leading-snug text-[var(--text-secondary)]">{subtitle}</span>
     </button>
+  )
+}
+
+interface ProfilePreviewProps {
+  enabled: boolean
+  loading: boolean
+  data: ProfileResolution | null
+  error: unknown
+}
+
+function ProfilePreview({ enabled, loading, data, error }: ProfilePreviewProps) {
+  if (!enabled) return null
+  if (loading) {
+    return (
+      <div className="rounded-lg border border-[var(--border-default)] bg-[var(--bg-subtle)] px-3 py-2 text-xs text-[var(--text-muted)] flex items-center gap-2">
+        <Loader2 className="h-3 w-3 animate-spin" />
+        Resolving on Tempo…
+      </div>
+    )
+  }
+  if (error) {
+    return (
+      <div className="rounded-lg border border-[var(--status-error)]/20 bg-[var(--status-error)]/5 px-3 py-2 text-xs text-[var(--status-error)]">
+        {error instanceof Error ? error.message : 'Lookup failed'}
+      </div>
+    )
+  }
+  if (!data) {
+    return (
+      <div className="rounded-lg border border-[var(--status-error)]/20 bg-[var(--status-error)]/5 px-3 py-2 text-xs text-[var(--status-error)]">
+        Agent ID not found on the IdentityRegistry. Confirm the operator has minted via{' '}
+        <a className="underline" href="/agents/register" target="_blank" rel="noopener noreferrer">
+          /agents/register
+        </a>
+        .
+      </div>
+    )
+  }
+  const isRegistered = data.kind === 'remlo_registered'
+  return (
+    <div
+      className={`rounded-xl border p-3 space-y-2 ${
+        isRegistered
+          ? 'border-[var(--accent)]/30 bg-[var(--accent-subtle)]/40'
+          : 'border-[var(--border-default)] bg-[var(--bg-subtle)]'
+      }`}
+    >
+      <div className="flex items-center gap-2">
+        {isRegistered && <BadgeCheck className="h-4 w-4 text-[var(--accent)]" />}
+        <span className="text-sm font-semibold text-[var(--text-primary)] truncate">
+          {data.profile.display_name ?? `Agent ${data.profile.agent_id}`}
+        </span>
+        <span className="ml-auto text-[10px] uppercase tracking-wider text-[var(--text-muted)]">
+          {isRegistered ? 'Registered on Remlo' : 'Unregistered (chain only)'}
+        </span>
+      </div>
+      {data.profile.description && (
+        <p className="text-xs text-[var(--text-secondary)] leading-relaxed">
+          {data.profile.description}
+        </p>
+      )}
+      <div className="grid grid-cols-2 gap-2 text-[11px]">
+        <div>
+          <div className="text-[10px] uppercase text-[var(--text-muted)]">Owner</div>
+          <div className="font-mono text-[var(--text-primary)] truncate">
+            {data.profile.owner_address}
+          </div>
+        </div>
+        {data.profile.last_refreshed_at && (
+          <div>
+            <div className="text-[10px] uppercase text-[var(--text-muted)]">Last refreshed</div>
+            <div className="text-[var(--text-primary)]">
+              {new Date(data.profile.last_refreshed_at).toLocaleDateString()}
+            </div>
+          </div>
+        )}
+      </div>
+      {data.profile.capabilities.length > 0 && (
+        <div className="flex flex-wrap gap-1">
+          {data.profile.capabilities.map((cap) => (
+            <span
+              key={cap}
+              className="rounded-md border border-[var(--border-default)] bg-[var(--bg-surface)] px-1.5 py-0.5 text-[10px] uppercase tracking-wider text-[var(--text-secondary)]"
+            >
+              {cap}
+            </span>
+          ))}
+        </div>
+      )}
+      {data.profile.reputation && data.profile.reputation.total_feedback_count > 0 && (
+        <div className="grid grid-cols-3 gap-2 rounded-lg border border-[var(--border-default)] bg-[var(--bg-surface)] p-2 mt-1">
+          <ReputationStat label="Feedback" value={String(data.profile.reputation.total_feedback_count)} />
+          <ReputationStat
+            label="Avg score"
+            value={data.profile.reputation.average_score !== null ? String(Math.round(data.profile.reputation.average_score)) : '—'}
+          />
+          <ReputationStat
+            label="Tags"
+            value={String(Object.keys(data.profile.reputation.feedback_by_tag).length)}
+          />
+        </div>
+      )}
+    </div>
+  )
+}
+
+function ReputationStat({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <div className="text-[10px] uppercase tracking-wider text-[var(--text-muted)]">{label}</div>
+      <div className="text-sm font-bold tabular-nums text-[var(--text-primary)]">{value}</div>
+    </div>
+  )
+}
+
+interface BrowseDirectoryModalProps {
+  onClose: () => void
+  onPick: (profile: AgentProfile) => void
+}
+
+function BrowseDirectoryModal({ onClose, onPick }: BrowseDirectoryModalProps) {
+  const [search, setSearch] = React.useState('')
+  const directoryQuery = useQuery<DirectoryResponse>({
+    queryKey: ['agent-directory'],
+    queryFn: async () => {
+      const res = await fetch('/api/agents/directory?limit=50')
+      if (!res.ok) throw new Error(`Directory failed (${res.status})`)
+      return (await res.json()) as DirectoryResponse
+    },
+    staleTime: 60_000,
+  })
+
+  React.useEffect(() => {
+    function handleKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') onClose()
+    }
+    document.addEventListener('keydown', handleKey)
+    document.body.style.overflow = 'hidden'
+    return () => {
+      document.removeEventListener('keydown', handleKey)
+      document.body.style.overflow = ''
+    }
+  }, [onClose])
+
+  const filteredAgents = React.useMemo(() => {
+    if (!directoryQuery.data) return []
+    const needle = search.trim().toLowerCase()
+    if (!needle) return directoryQuery.data.agents
+    return directoryQuery.data.agents.filter((a) => {
+      return (
+        (a.display_name ?? '').toLowerCase().includes(needle) ||
+        (a.description ?? '').toLowerCase().includes(needle) ||
+        a.capabilities.some((c) => c.toLowerCase().includes(needle)) ||
+        a.agent_id.includes(needle)
+      )
+    })
+  }, [directoryQuery.data, search])
+
+  return (
+    <div
+      className="fixed inset-0 z-[200] flex items-center justify-center bg-black/60 px-4 py-6"
+      role="dialog"
+      aria-modal="true"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose()
+      }}
+    >
+      <div className="w-full max-w-2xl max-h-[80vh] flex flex-col rounded-2xl border border-[var(--border-default)] bg-[var(--bg-overlay)] shadow-2xl">
+        <header className="px-5 py-4 border-b border-[var(--border-default)] flex items-center gap-3">
+          <Search className="h-4 w-4 text-[var(--text-muted)]" />
+          <input
+            autoFocus
+            placeholder="Search agents by name, capability, or agent ID…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="flex-1 bg-transparent text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none"
+          />
+          <button
+            type="button"
+            onClick={onClose}
+            className="text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+          >
+            Close ↵
+          </button>
+        </header>
+        <div className="flex-1 overflow-y-auto p-3">
+          {directoryQuery.isLoading ? (
+            <div className="p-8 text-center text-xs text-[var(--text-muted)] flex items-center justify-center gap-2">
+              <Loader2 className="h-3 w-3 animate-spin" />
+              Loading directory…
+            </div>
+          ) : filteredAgents.length === 0 ? (
+            <div className="p-8 text-center text-xs text-[var(--text-muted)]">
+              {search ? 'No agents match your search.' : 'No agents are registered yet.'}
+            </div>
+          ) : (
+            <ul className="space-y-1.5">
+              {filteredAgents.map((agent) => (
+                <li key={agent.agent_identifier}>
+                  <button
+                    type="button"
+                    onClick={() => onPick(agent)}
+                    className="w-full text-left rounded-lg border border-[var(--border-default)] bg-[var(--bg-surface)] hover:bg-[var(--bg-subtle)] p-3 transition-colors flex items-start gap-3"
+                  >
+                    <BadgeCheck className="h-4 w-4 text-[var(--accent)] mt-0.5 shrink-0" />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-semibold text-[var(--text-primary)] truncate">
+                          {agent.display_name ?? `Agent ${agent.agent_id}`}
+                        </span>
+                        <span className="text-[10px] font-mono text-[var(--text-muted)]">
+                          erc8004:tempo:{agent.agent_id}
+                        </span>
+                      </div>
+                      {agent.description && (
+                        <p className="mt-0.5 text-xs text-[var(--text-secondary)] line-clamp-2">
+                          {agent.description}
+                        </p>
+                      )}
+                      {agent.capabilities.length > 0 && (
+                        <div className="mt-1.5 flex flex-wrap gap-1">
+                          {agent.capabilities.slice(0, 6).map((cap) => (
+                            <span
+                              key={cap}
+                              className="rounded-md border border-[var(--border-default)] bg-[var(--bg-base)] px-1.5 py-0.5 text-[10px] uppercase tracking-wider text-[var(--text-secondary)]"
+                            >
+                              {cap}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                      {agent.reputation && agent.reputation.total_feedback_count > 0 && (
+                        <div className="mt-1.5 flex items-center gap-3 text-[11px] text-[var(--text-muted)]">
+                          <span>
+                            <span className="text-[var(--text-primary)] font-semibold tabular-nums">
+                              {agent.reputation.total_feedback_count}
+                            </span>{' '}
+                            feedback
+                          </span>
+                          {agent.reputation.average_score !== null && (
+                            <span>
+                              avg{' '}
+                              <span className="text-[var(--text-primary)] font-semibold tabular-nums">
+                                {Math.round(agent.reputation.average_score)}
+                              </span>
+                            </span>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                    <ExternalLink className="h-3.5 w-3.5 text-[var(--text-muted)] mt-1 shrink-0" />
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+        <footer className="px-5 py-3 border-t border-[var(--border-default)] text-[11px] text-[var(--text-muted)]">
+          {directoryQuery.data?.agents.length ?? 0} agent{(directoryQuery.data?.agents.length ?? 0) === 1 ? '' : 's'} listed.{' '}
+          <a className="text-[var(--accent)] hover:underline" href="/agents" target="_blank" rel="noopener noreferrer">
+            See full directory →
+          </a>
+        </footer>
+      </div>
+    </div>
   )
 }

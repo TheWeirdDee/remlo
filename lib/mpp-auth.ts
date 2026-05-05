@@ -18,9 +18,14 @@
  * later patch. The seam is `verifyAgentTier2Proof` below — currently a stub.
  */
 import { verifyPrivyToken, extractBearerToken, type PrivyClaims } from '@/lib/jwt'
+import { verifyAccessToken as verifyMcpAccessToken } from '@/lib/mcp/oauth/tokens'
 import { createServerClient } from '@/lib/supabase-server'
 import { findActiveAuthorization } from '@/lib/queries/agent-authorizations'
-import { verifyAgentProof, verifyTier2AgentProof } from '@/lib/agent-proof'
+import {
+  verifyAgentProof,
+  verifyTier2AgentProof,
+  verifyTier2SolanaProof,
+} from '@/lib/agent-proof'
 import type { Database } from '@/lib/database.types'
 
 type Employer = Database['public']['Tables']['employers']['Row']
@@ -74,6 +79,15 @@ export interface RequireEmployeeCallerOptions {
 export async function verifyMppCallerClaims(req: Request): Promise<PrivyClaims | null> {
   const token = extractBearerToken(req.headers.get('authorization'))
   if (!token) return null
+
+  // Accept either a Privy JWT (browser sessions, direct API callers) or a
+  // Remlo-issued MCP access token (callers coming through the MCP front
+  // door). Both carry the same subject (Privy user ID), so downstream
+  // employer-ownership checks behave identically.
+  const mcpClaims = await verifyMcpAccessToken(token)
+  if (mcpClaims) {
+    return { sub: mcpClaims.sub, exp: mcpClaims.exp }
+  }
   return verifyPrivyToken(token)
 }
 
@@ -197,8 +211,11 @@ export async function requireEmployerCaller(
   }
 
   // Dispatch to the right proof flavor. identity_kind is set per row at
-  // authorization time — Tier 1 rows have a signing_secret, Tier 2 rows
-  // have an erc8004_owner_address.
+  // authorization time — each kind populates a different column set:
+  //   - hmac           → signing_secret
+  //   - erc8004_tempo  → erc8004_owner_address (cached from Tempo on insert)
+  //   - sas_solana     → solana_pubkey (the pubkey IS the identity, no
+  //                       on-chain ownerOf step needed)
   const identityKind = authorization.identity_kind ?? 'hmac'
 
   if (identityKind === 'erc8004_tempo') {
@@ -209,6 +226,21 @@ export async function requireEmployerCaller(
       timestampHeader: req.headers.get('x-agent-timestamp'),
       signatureHeader: req.headers.get('x-agent-signature'),
       expectedOwner: authorization.erc8004_owner_address,
+    })
+    if (!proof.ok) {
+      return {
+        ok: false,
+        response: Response.json({ error: proof.error, code: proof.code }, { status: proof.status }),
+      }
+    }
+  } else if (identityKind === 'sas_solana') {
+    const proof = await verifyTier2SolanaProof({
+      method: req.method,
+      url: req.url,
+      rawBody: options.rawBody,
+      timestampHeader: req.headers.get('x-agent-timestamp'),
+      signatureHeader: req.headers.get('x-agent-signature'),
+      expectedPubkey: authorization.solana_pubkey,
     })
     if (!proof.ok) {
       return {

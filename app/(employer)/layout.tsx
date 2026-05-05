@@ -5,6 +5,7 @@ import { usePrivy } from '@privy-io/react-auth'
 import { useQueryClient } from '@tanstack/react-query'
 import { EmployerSidebar } from '@/components/employer/EmployerSidebar'
 import { EmployerHeader } from '@/components/employer/EmployerHeader'
+import { SystemAnnouncementBanner } from '@/components/system/SystemAnnouncementBanner'
 import { useEmployer } from '@/lib/hooks/useEmployer'
 import { getPrimaryPrivyEthereumWallet } from '@/lib/privy-wallet'
 
@@ -93,6 +94,7 @@ export default function EmployerLayout({ children }: { children: React.ReactNode
 
       <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
         <EmployerHeader onMobileMenuOpen={() => setMobileOpen(true)} />
+        <SystemAnnouncementBanner />
         <main className="flex-1 overflow-y-auto p-4 lg:p-6">
           {children}
         </main>

@@ -1,6 +1,7 @@
 'use client'
 
-import { Activity, Clock3, ShieldCheck, Wallet } from 'lucide-react'
+import Link from 'next/link'
+import { Activity, Clock3, ShieldCheck, ShieldOff, Wallet } from 'lucide-react'
 import { SectionHeader } from '@/components/ui/SectionHeader'
 import { useAdminScope, type AdminMonitoringResponse } from '@/lib/hooks/useAdmin'
 
@@ -35,6 +36,16 @@ export default function AdminMonitoringPage() {
         title="Monitoring"
         description="Operational pulse for webhook-derived events, pending payment backlog, open MPP sessions, and the most recent payroll submissions."
       />
+
+      <div className="flex flex-wrap gap-2">
+        <Link
+          href="/admin/monitoring/suppressions"
+          className="inline-flex items-center gap-2 rounded-lg border border-[var(--border-default)] bg-[var(--bg-surface)] px-3 py-2 text-xs font-medium text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-subtle)]"
+        >
+          <ShieldOff className="h-3.5 w-3.5 text-[var(--text-muted)]" />
+          Email suppressions
+        </Link>
+      </div>
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         {[

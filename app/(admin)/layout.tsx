@@ -3,15 +3,17 @@
 import * as React from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { Activity, Building2, ChevronRight, LayoutDashboard, ShieldCheck } from 'lucide-react'
+import { Activity, Building2, ChevronRight, LayoutDashboard, Megaphone, ShieldCheck } from 'lucide-react'
 import { usePrivy } from '@privy-io/react-auth'
 import { RemloLogo } from '@/components/brand/RemloLogo'
+import { SystemAnnouncementBanner } from '@/components/system/SystemAnnouncementBanner'
 
 const NAV_ITEMS = [
   { href: '/admin', label: 'Overview', icon: LayoutDashboard },
   { href: '/admin/employers', label: 'Employers', icon: Building2 },
   { href: '/admin/compliance', label: 'Compliance', icon: ShieldCheck },
   { href: '/admin/monitoring', label: 'Monitoring', icon: Activity },
+  { href: '/admin/announcements', label: 'Announcements', icon: Megaphone },
 ]
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
@@ -66,6 +68,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
             </span>
           </div>
         </header>
+        <SystemAnnouncementBanner />
         <main className="p-4 lg:p-6">{children}</main>
       </div>
     </div>

@@ -90,7 +90,11 @@ export async function subscribeToWaitlist(input: SubscribeInput): Promise<Subscr
       { name: 'source', value: input.source ?? 'unknown' },
     ],
   })
-  if (!send.ok && !send.skipped) {
+  // Suppressed recipients (prior bounce/complaint) are a legitimate silent
+  // skip — we still want to acknowledge their subscription locally so an
+  // operator can investigate, but we don't surface an error. Real send
+  // failures (Resend down, render error) are surfaced.
+  if (!send.ok && !send.suppressed) {
     return { kind: 'error', message: send.error ?? 'send failed' }
   }
 

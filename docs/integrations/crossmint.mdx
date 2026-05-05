@@ -1,0 +1,178 @@
+---
+title: "Crossmint (Lobster Cash)"
+description: "Non custodial agent wallets with delegated permissions. Pays Remlo via x402 on Base or MPP on Tempo."
+---
+
+Crossmint is the wallet infrastructure behind [Lobster Cash](https://lobster.cash) and other agent payment products. Like AgentCash, Sponge, and ATXP, it's an agent side wallet — Remlo doesn't depend on it. Crossmint's distinguishing feature is the **non custodial delegated** model: the user owns the wallet, the agent gets scoped signer permissions (spend cap, allowed counterparties, time window) enforced on chain.
+
+## Why Crossmint
+
+Three things matter for paying Remlo:
+
+1. **Non custodial wallets with on chain delegation.** The user keeps custody. The agent is added as a signer with a permission set the user signed. Anything outside the delegated scope is rejected at the wallet layer. Crossmint and the developer never take custody of funds.
+2. **Server agent wallets.** For autonomous agents with no human in the loop, Crossmint also offers backend only wallets where your server is the root signer.
+3. **Standard libs.** Crossmint's x402 path uses `@x402/core` + `@x402/evm`, the canonical Coinbase libraries. The MPP path uses `mppx/client`. Crossmint contributes the wallet; the protocol layer is upstream.
+
+## Setup
+
+You need:
+
+- A Crossmint server side API key from the [Crossmint Console](https://staging.crossmint.com/console/projects/apiKeys)
+- A Crossmint EVM wallet on Base with USDC (see the [Wallets quickstart](https://docs.crossmint.com/agents/stablecoin-wallet-quickstart))
+- The agent authorized as a signer on the wallet (see [Authorize the Agent](https://docs.crossmint.com/agents/payment-methods/stablecoin-wallets/authorize-agent))
+
+```bash
+npm i @crossmint/wallets-sdk @x402/core @x402/evm viem
+```
+
+For MPP on Tempo, also install:
+
+```bash
+npm i mppx/client
+```
+
+## Calling Remlo via x402 (Base, Solana)
+
+```typescript
+import { CrossmintWallets, createCrossmint } from "@crossmint/wallets-sdk"
+import { EVMWallet } from "@crossmint/client-sdk-react-ui"
+import { x402Client, wrapFetchWithPayment } from "@x402/core/client"
+import { ExactEvmScheme } from "@x402/evm/exact/client"
+import type { Hex } from "viem"
+
+const crossmint = createCrossmint({
+  apiKey: process.env.CROSSMINT_SERVER_API_KEY!,
+})
+
+const crossmintWallets = CrossmintWallets.from(crossmint)
+
+const wallet = await crossmintWallets.getWallet(
+  process.env.CROSSMINT_WALLET_ADDRESS!,
+  { chain: "base" },
+)
+
+await wallet.useSigner({
+  type: "server",
+  secret: process.env.CROSSMINT_SIGNER_SECRET!,
+})
+
+const evmWallet = EVMWallet.from(wallet)
+
+const x402Signer = {
+  address: evmWallet.address as `0x${string}`,
+  async signTypedData(typedData: any) {
+    const { signature } = await evmWallet.signTypedData({
+      ...typedData,
+      chain: "base",
+    })
+    return signature as Hex
+  },
+}
+
+const client = new x402Client()
+client.register("eip155:*", new ExactEvmScheme(x402Signer))
+
+const fetchWithPayment = wrapFetchWithPayment(fetch, client)
+
+const res = await fetchWithPayment(
+  "https://www.remlo.xyz/api/mpp/treasury/yield-rates",
+  { method: "GET" },
+)
+```
+
+`wrapFetchWithPayment` handles the 402 → sign → retry loop. Your agent code calls a normal `fetch`.
+
+For principal bound endpoints, include the Tier 1 or Tier 2 headers on the request:
+
+```typescript
+const res = await fetchWithPayment(
+  "https://www.remlo.xyz/api/mpp/agent/pay",
+  {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Agent-Identifier": "erc8004:tempo:42",
+      "X-Agent-Timestamp": String(Date.now()),
+      "X-Agent-Signature": "0x...",
+    },
+    body: JSON.stringify({ /* charge body */ }),
+  },
+)
+```
+
+## Calling Remlo via MPP (Tempo)
+
+```typescript
+import { CrossmintWallets, createCrossmint } from "@crossmint/wallets-sdk"
+import { EVMWallet } from "@crossmint/client-sdk-react-ui"
+import {
+  createWalletClient,
+  custom,
+  http,
+  MethodNotFoundRpcError,
+  type EIP1193RequestFn,
+} from "viem"
+import { tempoDevnet } from "viem/chains"
+import { Mppx, tempo } from "mppx/client"
+
+const crossmint = createCrossmint({
+  apiKey: process.env.CROSSMINT_SERVER_API_KEY!,
+})
+
+const crossmintWallets = CrossmintWallets.from(crossmint)
+const wallet = await crossmintWallets.getWallet(
+  process.env.CROSSMINT_WALLET_ADDRESS!,
+  { chain: "base" },
+)
+await wallet.useSigner({
+  type: "server",
+  secret: process.env.CROSSMINT_SIGNER_SECRET!,
+})
+
+const evmWallet = EVMWallet.from(wallet)
+const httpTransport = http()
+
+const request: EIP1193RequestFn = async ({ method, params }) => {
+  if (method === "wallet_sendCalls") {
+    throw new MethodNotFoundRpcError(new Error("not implemented"))
+  }
+  if (method === "eth_sendTransaction") {
+    const [tx] = params as Array<{
+      to: `0x${string}`
+      data?: `0x${string}`
+      value?: `0x${string}`
+    }>
+    const sent = await evmWallet.sendTransaction({
+      to: tx.to,
+      data: tx.data ?? "0x",
+      value: tx.value ? BigInt(tx.value) : undefined,
+    })
+    return sent.hash as `0x${string}`
+  }
+  return httpTransport.request({ method, params } as any)
+}
+
+const walletClient = createWalletClient({
+  account: evmWallet.address as `0x${string}`,
+  chain: tempoDevnet,
+  transport: custom({ request }),
+})
+
+const mppx = Mppx.create({
+  polyfill: false,
+  methods: [tempo({ mode: "push", getClient: () => walletClient as any })],
+})
+
+const res = await mppx.fetch(
+  "https://www.remlo.xyz/api/mpp/treasury/yield-rates",
+)
+```
+
+Same pattern as x402 — `mppx.fetch` handles the negotiation and retry transparently.
+
+## What Crossmint isn't
+
+- It isn't a dependency for Remlo. We don't ship code that imports the Crossmint SDK.
+- It isn't a card processor for Remlo. Crossmint also offers virtual cards (Visa VIC + Mastercard Agent Pay) for agents to spend at traditional websites. Remlo receives stablecoins, not cards; the card story is unrelated to how an agent pays our endpoints.
+- It isn't an authentication system. Principal bound endpoints use the standard Remlo Tier 1 / Tier 2 headers, signed independently of Crossmint.
+- It isn't required to use `@x402/core` or `mppx/client` directly. Crossmint is one wallet flavor; you can pair `@x402/core` with any EVM signer.

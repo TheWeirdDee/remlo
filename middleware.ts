@@ -36,6 +36,7 @@ const PUBLIC_PATHS = [
   '/contact',
   '/press',
   '/status',
+  '/agents', // Public discovery directory
 ]
 
 const PUBLIC_PREFIXES = [
@@ -44,11 +45,19 @@ const PUBLIC_PREFIXES = [
   '/kyc/',
   '/legal/',
   '/_next/',
-  '/api/webhooks/', // Bridge + Tempo webhooks must be unauthenticated
+  '/agents/', // /agents/register and any future agent sub-pages — all public
+  '/api/agents/', // public agent discovery + lookup (free reads)
+  '/api/waitlist/', // waitlist subscribe/confirm/unsubscribe — pre-auth
+  '/api/reputation/', // public reputation queries (free, no auth)
+  '/api/x402/', // x402 paid endpoints — payment header is the auth
+  '/api/webhooks/', // Bridge + Tempo + Resend webhooks — own signature verification
   '/api/cron/', // Cron handlers do their own timing-safe CRON_SECRET check; Vercel Cron has no cookie
   '/api/openapi.json', // OpenAPI discovery doc must be publicly accessible for MPPscan
   '/.well-known/', // x402 payment discovery
   '/api/mpp/', // MPP endpoints are pay-per-call — payment header is the auth
+  '/api/mcp', // MCP server — bearer auth handled inside the route, not at middleware
+  '/api/oauth/', // OAuth 2.1 endpoints — DCR, authorize, consent, token. Unauth by design.
+  '/oauth/', // OAuth consent UI — Privy session checked client-side
   '/api/demo/', // Demo endpoints are public — used by unauthenticated pitch pages
   '/dev/', // Reference implementations (e.g. Lit signing architecture demo) — publicly shareable
   '/opengraph-image', // OG image must be public for social link previews

@@ -54,3 +54,13 @@ Caller must be the employer that owns the payroll run, proven by either:
 - **Tier 2 agent** — `X-Agent-Identifier: erc8004:tempo:<agentId>` + signed canonical message.
 
 Without principal proof, the request is rejected even if payment was paid. See [Authentication](/docs/mpp-api/authentication#two-factor-payment--principal) and [Agent registration](/docs/mpp-api/agent-registration).
+
+## Side effects
+
+After the on-chain transaction is broadcast, three async actions fire (fire-and-forget; handler latency is not extended):
+
+1. **Employer notification** — a `payroll_finalized` row is inserted into `notifications` for the dashboard bell.
+2. **Employer email** — `PayrollFinalizedEmail` template fires once per run to the employer's billing email, summarizing recipient count, total, chain, tx hash.
+3. **Per-employee receipts** — for each `payment_item` in the run that has an `email` on file, a `PaymentReceivedEmail` fires to the employee. The receipt includes the amount, settlement timestamp, chain, tx hash, payslip link, and an off-ramp hint. Idempotency keys are scoped to `(run_id, employee_id)` so retried executions don't double-send. Recipients on the suppression list (prior bounce or complaint) are filtered out.
+
+The same per-employee receipt logic runs whether the payroll was triggered through this MPP-paid endpoint or through the dashboard's `/api/employers/{id}/payroll/{runId}/execute` (Privy-authed) variant.

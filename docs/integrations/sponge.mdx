@@ -1,0 +1,121 @@
+---
+title: "Sponge Wallet"
+description: "Multi chain agent wallet with native MPP and x402 support. Pays Remlo across Tempo, Base, and Solana."
+---
+
+Sponge Wallet is one of several agent side wallets that pay Remlo's MPP and x402 endpoints with no server integration on either side. Like AgentCash, it's an agent side wallet — Remlo doesn't depend on it; we surface it because it implements the open protocols correctly.
+
+## Why Sponge
+
+Three properties matter for paying Remlo:
+
+1. **Native MPP and x402.** Sponge speaks both protocols natively. `wallet.x402Fetch()` for Base/Solana endpoints, `wallet.mppFetch()` for Tempo endpoints, or `wallet.paidFetch()` to let Sponge pick. No protocol code in your agent.
+2. **Four chains, one wallet.** EVM keys are network agnostic so the same address works on Ethereum, Base, and Tempo (`pathUSD`, gas sponsored). Solana uses its own keypair under the same wallet object.
+3. **Self registration.** Agents can self register without a human in the loop via `POST /api/agents/register` with `agentFirst: true`. The agent gets an API key instantly, the user claims ownership later via a device flow link.
+
+## Setup
+
+```bash
+bun add @paysponge/sdk
+# or: npm install @paysponge/sdk
+```
+
+Connect via device flow (browser approval) or with an API key from the [Sponge dashboard](https://wallet.paysponge.com):
+
+```typescript
+import { SpongeWallet } from "@paysponge/sdk"
+
+const wallet = await SpongeWallet.connect({
+  apiKey: process.env.SPONGE_API_KEY,
+})
+```
+
+Fund any chain. Sponge consolidates balances under one wallet object.
+
+## Calling Remlo from the SDK
+
+The highest level helper picks the rail for you:
+
+```typescript
+const res = await wallet.paidFetch({
+  url: "https://www.remlo.xyz/api/mpp/treasury/yield-rates",
+  method: "GET",
+})
+```
+
+Force a specific rail when you want control:
+
+```typescript
+// Tempo via MPP
+const res = await wallet.mppFetch({
+  url: "https://www.remlo.xyz/api/mpp/treasury/yield-rates",
+  chain: "tempo",
+  method: "GET",
+})
+
+// Base or Solana via x402
+const res = await wallet.x402Fetch({
+  url: "https://www.remlo.xyz/api/mpp/treasury/yield-rates",
+  preferredChain: "base",
+  method: "GET",
+})
+```
+
+For paid endpoints that mutate state and require a principal (`/api/mpp/agent/pay`, `/api/mpp/payroll/execute`, etc.), pass the Tier 1 or Tier 2 identity headers in the same request:
+
+```typescript
+const res = await wallet.x402Fetch({
+  url: "https://www.remlo.xyz/api/mpp/agent/pay",
+  preferredChain: "base",
+  method: "POST",
+  headers: {
+    "X-Agent-Identifier": "erc8004:tempo:42",
+    "X-Agent-Timestamp": String(Date.now()),
+    "X-Agent-Signature": "0x...",
+  },
+  body: { /* charge body */ },
+})
+```
+
+## Calling Remlo from the REST API
+
+If you don't want to add the SDK, Sponge exposes a passthrough fetcher. Provide a Sponge agent API key as a bearer token; Sponge handles the 402/MPP retry on the server side and returns the upstream response:
+
+```bash
+# Tempo via MPP
+curl -X POST https://api.wallet.paysponge.com/api/mpp/fetch \
+  -H "Authorization: Bearer $SPONGE_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "url": "https://www.remlo.xyz/api/mpp/treasury/yield-rates",
+    "chain": "tempo",
+    "method": "GET"
+  }'
+
+# Base or Solana via x402
+curl -X POST https://api.wallet.paysponge.com/api/x402/fetch \
+  -H "Authorization: Bearer $SPONGE_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "url": "https://www.remlo.xyz/api/mpp/treasury/yield-rates",
+    "method": "GET"
+  }'
+```
+
+## In Claude Code or any MCP client
+
+Sponge ships an MCP server you can hand to a Claude or Cursor session. Once registered, the model can call any Remlo endpoint by invoking Sponge's `paidFetch` tool — no glue code on your side.
+
+```bash
+claude mcp add -s user --transport http sponge-wallet \
+  https://api.paysponge.com/mcp
+```
+
+On first use Sponge opens a browser to authorize the connection.
+
+## What Sponge isn't
+
+- It isn't a dependency for Remlo. We don't ship code that imports `@paysponge/sdk`.
+- It isn't an authentication system. Identity for principal bound endpoints comes from Tier 1 HMAC or Tier 2 (ERC-8004 / SAS Solana) signatures, signed independently of Sponge.
+- It isn't a Remlo product. Sponge is built and operated by `paysponge.com`. We surface them because they implement open MPP and x402 correctly.
+- It isn't required to use Tempo. The `mppx` client from `@tempo-protocol` works equally well; Sponge is just one wrapper.

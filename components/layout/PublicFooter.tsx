@@ -9,6 +9,7 @@ const FOOTER_COLS = [
       { label: 'Features', href: '/#features' },
       { label: 'How It Works', href: '/#how-it-works' },
       { label: 'Pricing', href: '/pricing' },
+      { label: 'Agent rails', href: '/agents' },
       { label: 'Changelog', href: '/changelog' },
     ],
   },
@@ -17,6 +18,7 @@ const FOOTER_COLS = [
     links: [
       { label: 'API reference', href: 'https://docs.remlo.xyz/docs', external: true },
       { label: 'MPP endpoints', href: 'https://docs.remlo.xyz/docs/mpp-api/overview', external: true },
+      { label: 'Register your agent', href: '/agents/register' },
       { label: 'AgentCash', href: 'https://docs.remlo.xyz/docs/integrations/agentcash', external: true },
       { label: 'GitHub', href: 'https://github.com/winsznx/remlo', external: true },
     ],

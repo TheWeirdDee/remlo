@@ -1,5 +1,8 @@
 import { mppRoute } from '@/lib/mpp-route'
 import { payrollBatcher, getServerWalletClient } from '@/lib/contracts'
+import { sendEmailBatch } from '@/lib/email/client'
+import { decodeMemo } from '@/lib/memo'
+import { TEMPO_EXPLORER_URL } from '@/lib/constants'
 import { getPayrollRunById, getPaymentItemsByRunId } from '@/lib/queries/payroll'
 import { getEmployerById } from '@/lib/queries/employers'
 import { createServerClient } from '@/lib/supabase-server'
@@ -73,13 +76,24 @@ export const POST = mppRoute({
   const employeeIds = items.map((item) => item.employee_id)
   const { data: employees } = await supabase
     .from('employees')
-    .select('id, wallet_address')
+    .select('id, wallet_address, email, first_name')
     .in('id', employeeIds)
 
   const walletMap = new Map<string, string>(
     (employees ?? [])
       .filter((e) => e.wallet_address)
       .map((e) => [e.id, e.wallet_address as string]),
+  )
+  const employeeProfileMap = new Map<
+    string,
+    { email: string; firstName: string | null }
+  >(
+    (employees ?? [])
+      .filter((e) => e.email)
+      .map((e) => [
+        e.id,
+        { email: e.email as string, firstName: (e.first_name as string | null) ?? null },
+      ]),
   )
 
   const missing = employeeIds.filter((id) => !walletMap.has(id))
@@ -111,6 +125,62 @@ export const POST = mppRoute({
     .from('payroll_runs')
     .update({ status: 'submitted', tx_hash: txHash })
     .eq('id', payrollRunId)
+
+  // Per-employee receipts. Fire-and-forget so MPP handler latency isn't tail-
+  // extended by Resend round-trips. Idempotency keys scope to (run, employee)
+  // so a retry doesn't double-send.
+  void (async () => {
+    const appUrl = (process.env.NEXT_PUBLIC_APP_URL ?? 'https://remlo.xyz').replace(/\/$/, '')
+    const explorerUrl = `${TEMPO_EXPLORER_URL}/tx/${txHash}`
+    const settledAt = new Date().toISOString()
+    const companyName = employer.company_name
+    const receipts = items
+      .map((item) => {
+        const profile = employeeProfileMap.get(item.employee_id)
+        if (!profile) return null
+        const memoHex = byteaMemoToHex(item.memo_bytes)
+        const memoFields = memoHex ? decodeMemo(memoHex) : null
+        const payPeriod =
+          memoFields && typeof memoFields === 'object' && 'payPeriod' in memoFields
+            ? String((memoFields as { payPeriod: unknown }).payPeriod ?? '')
+            : null
+        return {
+          to: profile.email,
+          template: 'payment_received' as const,
+          idempotencyKey: `payment-received:${payrollRunId}:${item.employee_id}`,
+          tags: [
+            { name: 'flow', value: 'payment_received' },
+            { name: 'run_id', value: payrollRunId },
+            { name: 'caller', value: auth.caller.kind },
+          ],
+          employerId: run.employer_id,
+          props: {
+            firstName: profile.firstName,
+            companyName,
+            amountUsd: Number(item.amount),
+            settledAt,
+            chain: 'tempo' as const,
+            explorerUrl,
+            txHash,
+            payslipUrl: `${appUrl}/portal/payments?run=${encodeURIComponent(payrollRunId)}`,
+            payPeriod: payPeriod || null,
+            costCenter: null,
+          },
+        }
+      })
+      .filter((x): x is NonNullable<typeof x> => x !== null)
+
+    if (receipts.length > 0) {
+      const result = await sendEmailBatch(receipts)
+      console.info('[mpp-payroll-execute] employee receipts sent', {
+        runId: payrollRunId,
+        attempted: result.attempted,
+        sent: result.sent,
+        skipped: result.skipped,
+        failed: result.failed,
+      })
+    }
+  })()
 
   return Response.json({
     success: true,

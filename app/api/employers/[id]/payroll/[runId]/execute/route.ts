@@ -5,8 +5,9 @@ import { payrollBatcher, getServerWalletClient } from '@/lib/contracts'
 import { getEmployerOnchainIdentity, getEmployerOnchainIdentityError } from '@/lib/employer-onchain'
 import { byteaMemoToHex } from '@/lib/memo'
 import { createNotification } from '@/lib/notifications'
-import { sendEmail } from '@/lib/email/client'
+import { sendEmail, sendEmailBatch } from '@/lib/email/client'
 import { getEmployerRecipient } from '@/lib/email/recipients'
+import { decodeMemo } from '@/lib/memo'
 import { TEMPO_EXPLORER_URL } from '@/lib/constants'
 
 type RouteContext = { params: Promise<{ id: string; runId: string }> }
@@ -60,13 +61,24 @@ export async function POST(req: NextRequest, ctx: RouteContext) {
   const employeeIds = items.map((i) => i.employee_id)
   const { data: employees } = await supabase
     .from('employees')
-    .select('id, wallet_address')
+    .select('id, wallet_address, email, first_name')
     .in('id', employeeIds)
 
   const walletMap = new Map<string, string>(
     (employees ?? [])
       .filter((e) => e.wallet_address)
       .map((e) => [e.id, e.wallet_address as string]),
+  )
+  const employeeProfileMap = new Map<
+    string,
+    { email: string; firstName: string | null }
+  >(
+    (employees ?? [])
+      .filter((e) => e.email)
+      .map((e) => [
+        e.id,
+        { email: e.email as string, firstName: (e.first_name as string | null) ?? null },
+      ]),
   )
 
   const missing = employeeIds.filter((id) => !walletMap.has(id))
@@ -169,6 +181,59 @@ export async function POST(req: NextRequest, ctx: RouteContext) {
         settlementMs: null,
       },
     })
+
+    // Per-employee receipts. Idempotency key is scoped to (run, employee) so a
+    // retried execute call (e.g. on reorg) doesn't double-send. Suppressed
+    // recipients (prior bounce/complaint) are filtered by sendEmailBatch.
+    const explorerUrl = `${TEMPO_EXPLORER_URL}/tx/${txHash}`
+    const settledAt = new Date().toISOString()
+    const employerEmployer = await getEmployerRecipient(employerId)
+    const companyName = employerEmployer?.companyName ?? 'your employer'
+    const employeeReceipts = items
+      .map((item) => {
+        const profile = employeeProfileMap.get(item.employee_id)
+        if (!profile) return null
+        const memoHex = byteaMemoToHex(item.memo_bytes)
+        const memoFields = memoHex ? decodeMemo(memoHex) : null
+        const payPeriod =
+          memoFields && typeof memoFields === 'object' && 'payPeriod' in memoFields
+            ? String((memoFields as { payPeriod: unknown }).payPeriod ?? '')
+            : null
+        return {
+          to: profile.email,
+          template: 'payment_received' as const,
+          idempotencyKey: `payment-received:${runId}:${item.employee_id}`,
+          tags: [
+            { name: 'flow', value: 'payment_received' },
+            { name: 'run_id', value: runId },
+          ],
+          employerId,
+          props: {
+            firstName: profile.firstName,
+            companyName,
+            amountUsd: Number(item.amount),
+            settledAt,
+            chain: 'tempo' as const,
+            explorerUrl,
+            txHash,
+            payslipUrl: `${appUrl}/portal/payments?run=${encodeURIComponent(runId)}`,
+            payPeriod: payPeriod || null,
+            costCenter: null,
+          },
+        }
+      })
+      .filter((x): x is NonNullable<typeof x> => x !== null)
+
+    if (employeeReceipts.length > 0) {
+      const result = await sendEmailBatch(employeeReceipts)
+      console.info('[payroll-execute] employee receipts sent', {
+        runId,
+        attempted: result.attempted,
+        sent: result.sent,
+        skipped: result.skipped,
+        failed: result.failed,
+      })
+    }
   })()
 
   return NextResponse.json({

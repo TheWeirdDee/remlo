@@ -1,0 +1,94 @@
+---
+title: "System Announcements"
+description: "Operator-controlled banner channel for platform-wide updates. How to publish, target, and expire."
+---
+
+Remlo has three distinct messaging surfaces. Don't confuse them — each has a different cadence, audience, and tooling:
+
+| Channel | Audience | Trigger | Lives in |
+|---|---|---|---|
+| **Operational notifications** | One employer | Server event (payroll, escrow, KYC) | Dashboard bell |
+| **Per-employee email receipts** | Individual employee | Payroll run settles | Employee inbox |
+| **System announcements** | Operator-chosen audience | Operator publishes manually | Top-of-page banner |
+
+This page covers the third — system announcements — which is the channel you'd reach for to push a "Mainnet is live", "Tempo RPC degraded", or "Maintenance window Saturday 03:00 UTC" message to a chosen slice of the user base.
+
+## What an announcement is
+
+A row in `system_announcements` with:
+
+- `title` (1–120 chars)
+- `body` (1–600 chars)
+- `severity` — `info` / `success` / `warning` / `error`. Drives the banner color.
+- `audience` — `all` / `employers` / `employees` / `admins`. Server-side scoped on every read.
+- `published_at` — when it goes live. `null` = draft, not visible.
+- `expires_at` — when it auto-clears. `null` = no auto-expiry.
+- `link_url` + `link_label` — optional CTA in the banner.
+- `created_by` — the platform admin who authored it. Set automatically.
+
+Announcements are not real-time; they refresh on dashboard mount and on window focus (60s stale time). A user dismissing one persists per-user — it disappears across all of their devices on the next refresh.
+
+## Authoring
+
+1. Sign in as a platform admin (your Privy `sub` must be in the `ADMIN_USER_IDS` env var, comma-separated).
+2. Navigate to `/admin/announcements`.
+3. Click "New announcement".
+4. Fill in:
+   - **Title** — short, scannable.
+   - **Body** — one or two sentences.
+   - **Severity** — match the visual urgency to the actual urgency. Reserve `error` for active outages.
+   - **Audience** — pick the smallest meaningful slice. `employers` is the default for product updates; `all` casts wider but increases ambient banner-fatigue.
+   - **Link URL + label** — optional. Use a `/`-rooted path for in-app destinations, full URL for external.
+   - **Expires at** — optional. Use this for any time-bound message (maintenance windows, incidents). For evergreen announcements like "Mainnet is live", leave blank.
+5. Click Publish. The banner appears immediately on every matching session that fetches `/api/announcements/active` (next page load, or up to 60s on a static tab).
+
+## Audience semantics
+
+The audience filter is enforced server-side using the user's role as Remlo sees it — not what the client claims:
+
+| `audience` | Visible to |
+|---|---|
+| `all` | Anyone with a logged-in session (employers, employees, admins). |
+| `employers` | Users with an active `employers` row. |
+| `employees` | Users with an active `employees` row. |
+| `admins` | Users in `ADMIN_USER_IDS`. |
+
+A user who is both an employer and an admin will see announcements targeted at either bucket. There's no way to send a "to admins only, but hide it from anyone who is also an employer" — flag that case with the message body if you need to.
+
+## Severity ordering and stacking
+
+If multiple announcements are simultaneously active for a user, the banner shows up to 5, ordered:
+
+1. By severity: `error` first, then `warning`, then `success`, then `info`.
+2. Within a severity, by recency (newest first).
+
+If you find yourself stacking 5+ announcements, that's a signal to retire some. Anything older than 30 days that's still active and undismissed is probably stale and should get an `expires_at` set.
+
+## Lifecycle
+
+- **Edit** an existing announcement via `PATCH /api/admin/announcements/{id}` (admin UI button TBD — for now the field-level edit is API-only). Editing does NOT re-deliver to users who already dismissed; treat dismissals as permanent. To re-deliver an updated message, publish a new announcement.
+- **Expire** by setting `expires_at` in the past, or by deleting the row entirely.
+- **Delete** via `DELETE /api/admin/announcements/{id}`. The dismissals row cascades.
+
+## When NOT to use this channel
+
+System announcements are not for:
+
+- **Operational events** (payroll completed, KYC approved, escrow settled). Those go through `notifications` and the dashboard bell, fired by deterministic server events. They're per-employer; this channel is platform-wide.
+- **Marketing email** (launch announcements, product updates to the waitlist). Those go through Resend Audiences + Broadcasts, where the audience is the confirmed waitlist signups, not in-app users.
+- **Per-employee comms** (your KYC needs renewing, your payslip is ready). Those go through transactional email templates ([emails/](https://github.com/winsznx/remlo/tree/main/emails)).
+
+Use system announcements for the narrow case where: every active session needs to see this, the message is operator-authored (not server-event-driven), and email isn't the right channel because the user is already in the product when the message is relevant.
+
+## API surface
+
+For automation or scripting, the same flows are reachable directly:
+
+- `POST /api/admin/announcements` — create. Admin-only.
+- `PATCH /api/admin/announcements/{id}` — edit. Admin-only.
+- `DELETE /api/admin/announcements/{id}` — remove. Admin-only.
+- `GET /api/admin/announcements` — list everything (drafts, expired, active). Admin-only.
+- `GET /api/announcements/active` — list visible-to-this-user banners. Authenticated.
+- `POST /api/announcements/{id}/dismiss` — per-user dismissal. Authenticated, idempotent.
+
+The admin endpoints require a Privy bearer token whose `sub` is in `ADMIN_USER_IDS`. The user endpoints require any authenticated session and resolve the audience server-side.

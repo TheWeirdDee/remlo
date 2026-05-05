@@ -177,4 +177,16 @@ X-Agent-Signature: 0x<65-byte ECDSA signature>
 
 Server resolves the agent's owner address from the cached authorization row (refreshed via `IdentityRegistry.ownerOf` on registration), recovers the signer from the signature, and rejects on mismatch.
 
-Tier 2 means an agent has one identity across every Remlo employer who authorizes them, and reputation accrues to the on-chain agentId across every system that reads ERC-8004 — not just Remlo.
+### Tier 2 — Solana pubkey + Ed25519
+
+For Solana-native agents. Same canonical Tier 2 message, but no on-chain mint and no `ownerOf` lookup — the Solana pubkey IS the identity:
+
+```
+X-Agent-Identifier: solana:<base58 pubkey>
+X-Agent-Timestamp: <unix milliseconds>
+X-Agent-Signature: <base58 OR 0x-hex 64-byte Ed25519 signature>
+```
+
+Server pulls the registered `solana_pubkey` from the authorization row and runs Ed25519 verify against it. Possession of the private key is the only auth check.
+
+Tier 2 (either flavor) means an agent has one identity across every Remlo employer who authorizes them, and reputation accrues to the on-chain agentId or pubkey across every system that reads ERC-8004 (Tempo) or SAS (Solana) — not just Remlo.

@@ -20,9 +20,10 @@ export interface CreateAuthorizationInput {
   agent_identifier: string
   per_tx_cap_usd: number
   per_day_cap_usd: number
-  identity_kind?: 'hmac' | 'erc8004_tempo'
+  identity_kind?: 'hmac' | 'erc8004_tempo' | 'sas_solana'
   erc8004_agent_id?: string | null
   erc8004_owner_address?: string | null
+  solana_pubkey?: string | null
 }
 
 export async function createAuthorization(

@@ -18,6 +18,16 @@ const spec = {
       },
     ],
   },
+  'x-mcp-server': {
+    url: 'https://www.remlo.xyz/api/mcp',
+    transport: 'streamable-http',
+    protocolVersion: '2026-01',
+    authorization: {
+      protectedResourceMetadata: 'https://www.remlo.xyz/.well-known/oauth-protected-resource',
+      authorizationServerMetadata: 'https://www.remlo.xyz/.well-known/oauth-authorization-server',
+    },
+    documentation: 'https://www.remlo.xyz/docs/mpp-api/mcp-server',
+  },
   servers: [{ url: 'https://www.remlo.xyz' }],
   tags: [
     { name: 'Treasury', description: 'Yield rates, optimization, and treasury management' },
@@ -1208,6 +1218,130 @@ const spec = {
           '422': {
             description: 'Insufficient treasury balance',
           },
+        },
+      },
+    },
+    '/api/mpp/agents/register': {
+      post: {
+        summary: 'Register an agent on Remlo',
+        description:
+          'Adds an ERC-8004-identified agent to the public Remlo directory and returns the X-Agent-Identifier the agent will use across employers. Identity is proven by ECDSA signature over a canonical message, cross-checked against the on-chain ownerOf the agent token. The $0.10 charge is the registration fee; identity is anchored on-chain (Tempo IdentityRegistry), not in our database. Re-registering with the same agent_id updates the profile in place.',
+        operationId: 'registerAgent',
+        tags: ['Agent'],
+        'x-payment-info': {
+          price: { mode: 'fixed', currency: 'USD', amount: '0.100000' },
+          protocols: [{ x402: {} }, { mpp: { method: 'tempo', intent: 'charge', currency: '0x20C000000000000000000000b9537d11c60E8b50' } }],
+          'x-networks': ['eip155:4217', 'eip155:8453', 'solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp'],
+        },
+        'x-guidance':
+          'Precondition: the agent must already own an ERC-8004 token via the Tempo IdentityRegistry (mint at /agents/register or via direct contract call). Sign the canonical message `Remlo Agent Registration v1\\nAgent ID: <id>\\nOwner: <eoa>\\nTimestamp: <ms>` with the EOA that owns the token, then POST with proof + profile metadata. The server verifies via on-chain ownerOf + ECDSA recovery — no key material is sent.',
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['agent_id', 'owner_address', 'timestamp_ms', 'signature', 'display_name'],
+                properties: {
+                  agent_id: {
+                    type: 'string',
+                    pattern: '^[0-9]+$',
+                    description: 'uint256 agent ID from the Tempo IdentityRegistry, as decimal string.',
+                  },
+                  owner_address: {
+                    type: 'string',
+                    pattern: '^0x[a-fA-F0-9]{40}$',
+                    description: 'EOA that owns the agent token. Must match ownerOf(agent_id).',
+                  },
+                  timestamp_ms: {
+                    type: 'string',
+                    description: 'Unix milliseconds when the message was signed. Must be within 5 minutes of server time.',
+                  },
+                  signature: {
+                    type: 'string',
+                    pattern: '^0x[a-fA-F0-9]+$',
+                    description: 'ECDSA signature over the canonical Remlo Agent Registration v1 message.',
+                  },
+                  display_name: {
+                    type: 'string',
+                    minLength: 1,
+                    maxLength: 80,
+                    description: 'Human-readable name shown in the directory.',
+                  },
+                  description: {
+                    type: 'string',
+                    maxLength: 500,
+                    description: 'Short description of what the agent does.',
+                  },
+                  endpoint: {
+                    type: 'string',
+                    format: 'uri',
+                    description: 'http(s) URL the agent serves.',
+                  },
+                  capabilities: {
+                    type: 'array',
+                    maxItems: 12,
+                    items: { type: 'string', maxLength: 32 },
+                    description: 'Free-form capability tags (e.g. ["payroll", "compliance"]).',
+                  },
+                  contact_url: {
+                    type: 'string',
+                    description: 'http(s):// or mailto: URL for contact.',
+                  },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          '200': {
+            description: 'Profile registered or refreshed.',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    success: { type: 'boolean' },
+                    profile: {
+                      type: 'object',
+                      properties: {
+                        agent_identifier: { type: 'string' },
+                        agent_id: { type: 'string' },
+                        chain: { type: 'string', enum: ['tempo', 'solana'] },
+                        owner_address: { type: 'string' },
+                        display_name: { type: 'string' },
+                        description: { type: 'string', nullable: true },
+                        endpoint: { type: 'string', nullable: true },
+                        capabilities: { type: 'array', items: { type: 'string' } },
+                        contact_url: { type: 'string', nullable: true },
+                        registered_at: { type: 'string', format: 'date-time' },
+                        last_refreshed_at: { type: 'string', format: 'date-time' },
+                      },
+                    },
+                    headers: {
+                      type: 'object',
+                      properties: {
+                        'X-Agent-Identifier': { type: 'string' },
+                      },
+                    },
+                    directory_url: { type: 'string' },
+                    authorize_url: { type: 'string' },
+                    registered_via: { type: 'string', enum: ['tempo', 'base', 'solana'] },
+                  },
+                },
+              },
+            },
+          },
+          '400': { description: 'Invalid input or malformed proof.' },
+          '401': { description: 'Bad/stale signature or signer mismatch.' },
+          '402': {
+            description: 'Payment Required',
+            headers: {
+              'WWW-Authenticate': { schema: { type: 'string' }, description: 'MPP / x402 payment challenge' },
+            },
+          },
+          '403': { description: 'owner_address does not match on-chain ownerOf.' },
+          '404': { description: 'agent_id not found on the IdentityRegistry.' },
         },
       },
     },

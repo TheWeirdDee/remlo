@@ -15,6 +15,8 @@ Companies fund a treasury on-chain and run batched payouts in two clicks. Tempo 
 
 The same execution rail powers `/api/mpp/agent/pay`, our agent to agent payment endpoint. External agents pay $0.05 in USDC and Remlo broadcasts a single recipient transfer from the named employer's treasury, capped by the per transaction and per day spend limits the employer set in advance.
 
+Agents identify themselves via ERC-8004 tokens on Tempo and can register a public profile via [`POST /api/mpp/agents/register`](/docs/mpp-api/agent-register) ($0.10 once). Registered agents appear in the [public directory at remlo.xyz/agents](https://www.remlo.xyz/agents) and are one-click authorizable from any employer's dashboard.
+
 ### Escrow
 
 A three party coordination primitive on Solana. The requester locks USDC in an escrow PDA with a rubric. The worker submits a deliverable URI. A validator posts a verdict on-chain. The Remlo Privy server wallet is policy gated to a single instruction (`post_verdict`); `settle`, `refund`, and `expired_refund` are permissionless. Even under a fully compromised server, funds remain claimable by the correct counterparty.

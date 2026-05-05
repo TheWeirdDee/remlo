@@ -47,17 +47,21 @@ export function WaitlistConfirmedBanner() {
   return (
     <div
       role={isError ? 'alert' : 'status'}
-      className={`fixed inset-x-0 top-0 z-[200] flex items-center justify-center px-4 py-3 text-sm font-medium ${
+      // Sits flush below the 64px PublicNavbar (top-16) so it reads as a
+      // sub-header status strip instead of fighting the navbar for space.
+      // z-index is higher than the navbar (z-50) so it stays above the
+      // hero gradient but lower than mobile menus / dialogs (z-300).
+      className={`fixed inset-x-0 top-16 z-[60] flex items-center justify-center gap-4 px-4 py-2.5 text-sm font-medium backdrop-blur ${
         isError
           ? 'bg-red-500/10 text-red-300 border-b border-red-500/20'
           : 'bg-[var(--accent)]/10 text-[var(--accent)] border-b border-[var(--accent)]/20'
       }`}
     >
-      <span>{message}</span>
+      <span className="text-center">{message}</span>
       <button
         type="button"
         onClick={() => setState(null)}
-        className="ml-4 rounded-md px-2 py-0.5 text-xs uppercase tracking-wide opacity-80 hover:opacity-100"
+        className="shrink-0 rounded-md border border-current/20 px-2 py-0.5 text-[10px] uppercase tracking-wide opacity-80 transition-opacity hover:opacity-100"
         aria-label="Dismiss"
       >
         Dismiss

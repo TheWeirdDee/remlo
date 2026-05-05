@@ -61,6 +61,8 @@
               "docs/mpp-api/overview",
               "docs/mpp-api/authentication",
               "docs/mpp-api/agent-registration",
+              "docs/mpp-api/agent-register",
+              "docs/mpp-api/agent-directory",
               "docs/mpp-api/multi-rail",
               "docs/mpp-api/yield-rates",
               "docs/mpp-api/payroll-execution",
@@ -73,7 +75,8 @@
               "docs/mpp-api/bridge-off-ramp",
               "docs/mpp-api/treasury-optimize",
               "docs/mpp-api/treasury-session",
-              "docs/mpp-api/compliance-marketplace"
+              "docs/mpp-api/compliance-marketplace",
+              "docs/mpp-api/mcp-server"
             ]
           },
           {
@@ -82,6 +85,9 @@
               "docs/integrations/bridge",
               "docs/integrations/privy",
               "docs/integrations/agentcash",
+              "docs/integrations/sponge",
+              "docs/integrations/atxp",
+              "docs/integrations/crossmint",
               "docs/integrations/vincent"
             ]
           },
@@ -90,7 +96,8 @@
             "pages": [
               "docs/operations/environment-variables",
               "docs/operations/deployment",
-              "docs/operations/contract-deployment"
+              "docs/operations/contract-deployment",
+              "docs/operations/announcements"
             ]
           }
         ]

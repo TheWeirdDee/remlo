@@ -2,12 +2,14 @@ import * as React from 'react'
 import { Resend } from 'resend'
 import { render } from '@react-email/render'
 import { createServerClient } from '@/lib/supabase-server'
+import { requireEnv } from '@/lib/env'
 import EmployeeInviteEmail from '@/emails/EmployeeInvite'
 import EmployerWelcomeEmail from '@/emails/EmployerWelcome'
 import PayrollFinalizedEmail from '@/emails/PayrollFinalized'
 import PayrollFailedEmail from '@/emails/PayrollFailed'
 import KycReminderEmail from '@/emails/KycReminder'
 import WaitlistConfirmEmail from '@/emails/WaitlistConfirm'
+import PaymentReceivedEmail from '@/emails/PaymentReceived'
 
 const FROM_DEFAULT = 'Remlo <hello@remlo.xyz>'
 const REPLY_TO_DEFAULT = 'hello@remlo.xyz'
@@ -19,6 +21,7 @@ type TemplateMap = {
   payroll_failed: React.ComponentProps<typeof PayrollFailedEmail>
   kyc_reminder: React.ComponentProps<typeof KycReminderEmail>
   waitlist_confirm: React.ComponentProps<typeof WaitlistConfirmEmail>
+  payment_received: React.ComponentProps<typeof PaymentReceivedEmail>
 }
 
 export type EmailTemplate = keyof TemplateMap
@@ -32,6 +35,7 @@ const TEMPLATE_COMPONENTS: {
   payroll_failed: PayrollFailedEmail,
   kyc_reminder: KycReminderEmail,
   waitlist_confirm: WaitlistConfirmEmail,
+  payment_received: PaymentReceivedEmail,
 }
 
 const SUBJECTS: { [K in EmailTemplate]: (props: TemplateMap[K]) => string } = {
@@ -42,6 +46,8 @@ const SUBJECTS: { [K in EmailTemplate]: (props: TemplateMap[K]) => string } = {
   payroll_failed: ({ companyName }) => `Payroll failed for ${companyName} — action required`,
   kyc_reminder: ({ companyName }) => `${companyName} is waiting on your identity check`,
   waitlist_confirm: () => 'Confirm your spot on the Remlo waitlist',
+  payment_received: ({ companyName, amountUsd }) =>
+    `You received ${new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(amountUsd)} from ${companyName}`,
 }
 
 export interface SendEmailInput<K extends EmailTemplate = EmailTemplate> {
@@ -63,16 +69,20 @@ export interface SendEmailResult {
   ok: boolean
   id?: string
   error?: string
-  skipped?: 'suppressed' | 'no_api_key'
+  /**
+   * `true` when the recipient is on the suppression list and we deliberately
+   * did not send. This is a legitimate user-driven skip, not a config error
+   * — production deploys don't reach `sendEmail` without RESEND_API_KEY
+   * because `lib/env.ts` validates at boot.
+   */
+  suppressed?: boolean
 }
 
 let resendInstance: Resend | null = null
 
-function getResend(): Resend | null {
-  const key = process.env.RESEND_API_KEY
-  if (!key) return null
+function getResend(): Resend {
   if (!resendInstance) {
-    resendInstance = new Resend(key)
+    resendInstance = new Resend(requireEnv('RESEND_API_KEY'))
   }
   return resendInstance
 }
@@ -130,17 +140,13 @@ export async function sendEmail<K extends EmailTemplate>(
   input: SendEmailInput<K>,
 ): Promise<SendEmailResult> {
   const resend = getResend()
-  if (!resend) {
-    console.warn('[email] RESEND_API_KEY missing — skipping send', { template: input.template })
-    return { ok: false, skipped: 'no_api_key', error: 'RESEND_API_KEY missing' }
-  }
 
   if (await isSuppressed(input.to)) {
     console.warn('[email] recipient suppressed — skipping', {
       template: input.template,
       to: input.to,
     })
-    return { ok: false, skipped: 'suppressed', error: 'Recipient is on suppression list' }
+    return { ok: false, suppressed: true, error: 'Recipient is on suppression list' }
   }
 
   const rendered = await renderTemplate(input.template, input.props)
@@ -216,13 +222,9 @@ export async function sendEmailBatch(
     errors: [],
   }
 
-  const resend = getResend()
-  if (!resend) {
-    result.skipped = items.length
-    return result
-  }
-
   if (items.length === 0) return result
+
+  const resend = getResend()
 
   const supabase = createServerClient()
   const recipients = Array.from(new Set(items.map((i) => normalizeEmail(i.to))))
@@ -279,10 +281,9 @@ export async function sendEmailBatch(
   return result
 }
 
-/** Cancel a previously scheduled email by its Resend message ID. No-op if API key missing. */
+/** Cancel a previously scheduled email by its Resend message ID. */
 export async function cancelScheduledEmail(emailId: string): Promise<{ ok: boolean; error?: string }> {
   const resend = getResend()
-  if (!resend) return { ok: false, error: 'RESEND_API_KEY missing' }
   try {
     const { error } = await resend.emails.cancel(emailId)
     if (error) return { ok: false, error: error.message }

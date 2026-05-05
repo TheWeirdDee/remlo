@@ -511,9 +511,10 @@ export interface Database {
           revoked_at: string | null
           signing_secret: string | null
           signing_secret_rotated_at: string | null
-          identity_kind: 'hmac' | 'erc8004_tempo'
+          identity_kind: 'hmac' | 'erc8004_tempo' | 'sas_solana'
           erc8004_agent_id: string | null
           erc8004_owner_address: string | null
+          solana_pubkey: string | null
         }
         Insert: {
           id?: string
@@ -527,9 +528,10 @@ export interface Database {
           revoked_at?: string | null
           signing_secret?: string | null
           signing_secret_rotated_at?: string | null
-          identity_kind?: 'hmac' | 'erc8004_tempo'
+          identity_kind?: 'hmac' | 'erc8004_tempo' | 'sas_solana'
           erc8004_agent_id?: string | null
           erc8004_owner_address?: string | null
+          solana_pubkey?: string | null
         }
         Update: {
           id?: string
@@ -543,9 +545,10 @@ export interface Database {
           revoked_at?: string | null
           signing_secret?: string | null
           signing_secret_rotated_at?: string | null
-          identity_kind?: 'hmac' | 'erc8004_tempo'
+          identity_kind?: 'hmac' | 'erc8004_tempo' | 'sas_solana'
           erc8004_agent_id?: string | null
           erc8004_owner_address?: string | null
+          solana_pubkey?: string | null
         }
         Relationships: []
       }
@@ -585,6 +588,123 @@ export interface Database {
           resend_contact_id?: string | null
           created_at?: string
           updated_at?: string
+        }
+        Relationships: []
+      }
+      system_announcements: {
+        Row: {
+          id: string
+          title: string
+          body: string
+          link_url: string | null
+          link_label: string | null
+          severity: 'info' | 'success' | 'warning' | 'error'
+          audience: 'all' | 'employers' | 'employees' | 'admins'
+          published_at: string | null
+          expires_at: string | null
+          created_by: string
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          title: string
+          body: string
+          link_url?: string | null
+          link_label?: string | null
+          severity?: 'info' | 'success' | 'warning' | 'error'
+          audience?: 'all' | 'employers' | 'employees' | 'admins'
+          published_at?: string | null
+          expires_at?: string | null
+          created_by: string
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          title?: string
+          body?: string
+          link_url?: string | null
+          link_label?: string | null
+          severity?: 'info' | 'success' | 'warning' | 'error'
+          audience?: 'all' | 'employers' | 'employees' | 'admins'
+          published_at?: string | null
+          expires_at?: string | null
+          created_by?: string
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      system_announcement_dismissals: {
+        Row: {
+          announcement_id: string
+          user_id: string
+          dismissed_at: string
+        }
+        Insert: {
+          announcement_id: string
+          user_id: string
+          dismissed_at?: string
+        }
+        Update: {
+          announcement_id?: string
+          user_id?: string
+          dismissed_at?: string
+        }
+        Relationships: []
+      }
+      remlo_agent_profiles: {
+        Row: {
+          agent_identifier: string
+          erc8004_agent_id: string | null
+          erc8004_chain: 'tempo' | 'solana'
+          owner_address: string
+          display_name: string
+          description: string | null
+          endpoint: string | null
+          capabilities: string[]
+          contact_url: string | null
+          registered_via: 'tempo' | 'base' | 'solana'
+          registration_tx_id: string | null
+          active: boolean
+          registered_at: string
+          updated_at: string
+          last_refreshed_at: string
+        }
+        Insert: {
+          agent_identifier: string
+          erc8004_agent_id?: string | null
+          erc8004_chain?: 'tempo' | 'solana'
+          owner_address: string
+          display_name: string
+          description?: string | null
+          endpoint?: string | null
+          capabilities?: string[]
+          contact_url?: string | null
+          registered_via?: 'tempo' | 'base' | 'solana'
+          registration_tx_id?: string | null
+          active?: boolean
+          registered_at?: string
+          updated_at?: string
+          last_refreshed_at?: string
+        }
+        Update: {
+          agent_identifier?: string
+          erc8004_agent_id?: string
+          erc8004_chain?: 'tempo' | 'solana'
+          owner_address?: string
+          display_name?: string
+          description?: string | null
+          endpoint?: string | null
+          capabilities?: string[]
+          contact_url?: string | null
+          registered_via?: 'tempo' | 'base' | 'solana'
+          registration_tx_id?: string | null
+          active?: boolean
+          registered_at?: string
+          updated_at?: string
+          last_refreshed_at?: string
         }
         Relationships: []
       }
@@ -902,6 +1022,88 @@ export interface Database {
           validator_type?: 'llm_claude' | 'llm_gpt4' | 'human' | 'oracle'
           weight?: number
           active?: boolean
+        }
+        Relationships: []
+      }
+      mcp_oauth_clients: {
+        Row: {
+          client_id: string
+          client_name: string
+          redirect_uris: string[]
+          scope: string
+          software_id: string | null
+          software_version: string | null
+          created_at: string
+        }
+        Insert: {
+          client_id: string
+          client_name: string
+          redirect_uris: string[]
+          scope?: string
+          software_id?: string | null
+          software_version?: string | null
+          created_at?: string
+        }
+        Update: {
+          client_name?: string
+          redirect_uris?: string[]
+          scope?: string
+          software_id?: string | null
+          software_version?: string | null
+        }
+        Relationships: []
+      }
+      mcp_oauth_auth_codes: {
+        Row: {
+          code: string
+          client_id: string
+          privy_user_id: string
+          redirect_uri: string
+          scope: string
+          code_challenge: string
+          code_challenge_method: string
+          expires_at: string
+          used: boolean
+          created_at: string
+        }
+        Insert: {
+          code: string
+          client_id: string
+          privy_user_id: string
+          redirect_uri: string
+          scope: string
+          code_challenge: string
+          code_challenge_method: string
+          expires_at: string
+          used?: boolean
+          created_at?: string
+        }
+        Update: {
+          used?: boolean
+        }
+        Relationships: []
+      }
+      mcp_oauth_refresh_tokens: {
+        Row: {
+          token: string
+          client_id: string
+          privy_user_id: string
+          scope: string
+          revoked: boolean
+          expires_at: string
+          created_at: string
+        }
+        Insert: {
+          token: string
+          client_id: string
+          privy_user_id: string
+          scope: string
+          revoked?: boolean
+          expires_at: string
+          created_at?: string
+        }
+        Update: {
+          revoked?: boolean
         }
         Relationships: []
       }

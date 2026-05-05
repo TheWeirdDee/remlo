@@ -5,6 +5,11 @@ import {
   fetchAgentURI,
   type TempoReputationSummary,
 } from '@/lib/reputation/erc8004'
+import {
+  listAgentProfiles,
+  attachReputation,
+  type AgentProfileWithReputation,
+} from '@/lib/queries/agent-profiles'
 import { WaitlistForm } from '@/components/marketing/WaitlistForm'
 
 /**
@@ -54,10 +59,12 @@ export default async function AgentsPage() {
   const reputationRegistry =
     process.env.NEXT_PUBLIC_ERC8004_REPUTATION_REGISTRY ?? 'not-deployed'
 
-  const [payrollSummary, validatorSummary] = await Promise.all([
+  const [payrollSummary, validatorSummary, directory] = await Promise.all([
     getCachedAgentSummary(payrollAgentId).catch(() => null),
     getCachedAgentSummary(validatorAgentId).catch(() => null),
+    listAgentProfiles({ limit: 24 }).catch(() => ({ items: [], nextCursor: null })),
   ])
+  const directoryWithReputation = await attachReputation(directory.items).catch(() => [])
 
   return (
     <div className="max-w-4xl mx-auto px-4 sm:px-6 py-12 space-y-12">
@@ -134,6 +141,32 @@ npx -y agentcash@latest fetch \\
           {' · '}
           Reputation Registry: <code className="font-mono">{reputationRegistry}</code>
         </p>
+      </section>
+
+      <section className="space-y-4">
+        <div className="flex items-baseline justify-between gap-3 flex-wrap">
+          <h2 className="text-lg font-semibold text-[var(--text-primary)]">
+            Registered agents
+          </h2>
+          <Link
+            href="/agents/register"
+            className="text-xs text-[var(--accent)] hover:underline"
+          >
+            Register your agent →
+          </Link>
+        </div>
+        {directoryWithReputation.length === 0 ? (
+          <p className="text-sm text-[var(--text-secondary)] rounded-2xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-5">
+            No external agents have registered yet. Be the first — mint an
+            ERC-8004 token, then call <code className="font-mono">POST /api/mpp/agents/register</code> ($0.10 once) to appear here.
+          </p>
+        ) : (
+          <div className="grid gap-4 sm:grid-cols-2">
+            {directoryWithReputation.map((agent) => (
+              <RegisteredAgentCard key={agent.agent_identifier} agent={agent} />
+            ))}
+          </div>
+        )}
       </section>
 
       <section className="space-y-4">
@@ -292,6 +325,102 @@ function AgentCard({
         >
           {data.agentUri}
         </a>
+      )}
+    </div>
+  )
+}
+
+function RegisteredAgentCard({ agent }: { agent: AgentProfileWithReputation }) {
+  const idLabel = `${agent.erc8004_chain}:${agent.erc8004_agent_id}`
+  const rep = agent.reputation
+  return (
+    <div
+      id={agent.agent_identifier}
+      className="rounded-2xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-5 space-y-3"
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <h3 className="text-base font-semibold text-[var(--text-primary)] truncate">
+            {agent.display_name}
+          </h3>
+          <p className="mt-1 text-[11px] font-mono text-[var(--text-muted)]">{idLabel}</p>
+        </div>
+        <span className="shrink-0 rounded-full border border-[var(--accent)]/20 bg-[var(--accent-subtle)] px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-[var(--accent)]">
+          ERC-8004
+        </span>
+      </div>
+      {rep && rep.total_feedback_count > 0 && (
+        <div className="grid grid-cols-3 gap-2 rounded-lg border border-[var(--border-default)] bg-[var(--bg-subtle)] p-2.5">
+          <div>
+            <div className="text-[10px] uppercase tracking-wider text-[var(--text-muted)]">Feedback</div>
+            <div className="text-sm font-bold tabular-nums text-[var(--text-primary)]">
+              {rep.total_feedback_count}
+            </div>
+          </div>
+          <div>
+            <div className="text-[10px] uppercase tracking-wider text-[var(--text-muted)]">Avg score</div>
+            <div className="text-sm font-bold tabular-nums text-[var(--text-primary)]">
+              {rep.average_score !== null ? Math.round(rep.average_score) : '—'}
+            </div>
+          </div>
+          <div>
+            <div className="text-[10px] uppercase tracking-wider text-[var(--text-muted)]">Tags</div>
+            <div className="text-sm font-bold text-[var(--text-primary)]">
+              {Object.keys(rep.feedback_by_tag).length}
+            </div>
+          </div>
+        </div>
+      )}
+      {agent.description && (
+        <p className="text-sm text-[var(--text-secondary)] leading-relaxed">{agent.description}</p>
+      )}
+      {agent.capabilities.length > 0 && (
+        <div className="flex flex-wrap gap-1.5">
+          {agent.capabilities.map((cap) => (
+            <span
+              key={cap}
+              className="rounded-md border border-[var(--border-default)] bg-[var(--bg-subtle)] px-2 py-0.5 text-[10px] uppercase tracking-wider text-[var(--text-secondary)]"
+            >
+              {cap}
+            </span>
+          ))}
+        </div>
+      )}
+      <div className="pt-2 border-t border-[var(--border-default)] grid grid-cols-2 gap-2 text-xs">
+        <div>
+          <div className="text-[10px] uppercase text-[var(--text-muted)]">Owner</div>
+          <div className="font-mono text-[var(--text-primary)] truncate">{agent.owner_address}</div>
+        </div>
+        <div>
+          <div className="text-[10px] uppercase text-[var(--text-muted)]">Last refreshed</div>
+          <div className="text-[var(--text-primary)]">
+            {new Date(agent.last_refreshed_at).toLocaleDateString()}
+          </div>
+        </div>
+      </div>
+      {(agent.endpoint || agent.contact_url) && (
+        <div className="flex flex-wrap gap-3 pt-1 text-xs">
+          {agent.endpoint && (
+            <a
+              href={agent.endpoint}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-[var(--accent)] hover:underline"
+            >
+              Endpoint
+            </a>
+          )}
+          {agent.contact_url && (
+            <a
+              href={agent.contact_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-[var(--accent)] hover:underline"
+            >
+              Contact
+            </a>
+          )}
+        </div>
       )}
     </div>
   )

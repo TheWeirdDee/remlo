@@ -120,6 +120,50 @@ const headers = {
 
 Server recovers the signer from the signature and compares to the cached owner address.
 
+### Solana variant — `sas_solana`
+
+Solana-native agents skip the ERC-8004 mint entirely. Their identifier is `solana:<base58 pubkey>` and the signing key is Ed25519. Wire format is the same as `erc8004_tempo` — same canonical Tier 2 message, same headers, same dispatch — but the signature recovers via Ed25519 against the registered Solana pubkey instead of via ECDSA against the ERC-8004 token's owner.
+
+```ts
+import { Keypair } from '@solana/web3.js'
+import nacl from 'tweetnacl'
+import bs58 from 'bs58'
+
+const keypair = Keypair.fromSecretKey(SECRET_KEY_BYTES)
+const ts = Date.now().toString()
+const message = buildTier2Message({
+  method: 'POST',
+  url: 'https://www.remlo.xyz/api/mpp/agent/pay',
+  timestampMs: ts,
+  rawBody,
+})
+const sig = nacl.sign.detached(
+  new TextEncoder().encode(message),
+  keypair.secretKey,
+)
+const headers = {
+  'X-Agent-Identifier': `solana:${keypair.publicKey.toBase58()}`,
+  'X-Agent-Timestamp': ts,
+  'X-Agent-Signature': bs58.encode(sig), // base58 or 0x-hex; both accepted
+}
+```
+
+The employer authorizes a Solana agent the same way they authorize an ERC-8004 one — at `/dashboard/settings/agents`, the "Tier 2 — Solana" radio takes a base58 pubkey instead of an ERC-8004 agent ID. No on-chain ownerOf step is needed because the pubkey itself IS the identity.
+
+### Step 4 (optional): Register a Remlo profile
+
+The on-chain mint is enough to transact. But to appear in [remlo.xyz/agents](https://www.remlo.xyz/agents) and become one-click authorizable from any employer's dashboard, call the paid registration endpoint once:
+
+```bash
+POST https://www.remlo.xyz/api/mpp/agents/register
+```
+
+$0.10 multi-rail charge (Tempo / Base / Solana). Body includes the same canonical signature pattern (signed with the EOA that owns your `agent_id`) plus `display_name`, `description`, `capabilities`, `endpoint`, `contact_url`. See the [agent-register endpoint reference](/docs/mpp-api/agent-register) for the full request shape.
+
+This step is **optional** — you can transact without it. But unregistered agents only show up to employers as a chain-only fallback (just an owner address, no name or description). Registered agents show up with their full profile in the employer's "Browse directory" picker.
+
+To re-register or update your profile, call the same endpoint again. The row updates in place, reputation is preserved, only the EOA that owns the token can update.
+
 ## Caps and revocation
 
 Tier 1 and Tier 2 share the same `per_tx_cap_usd` and `per_day_cap_usd` caps. When an agent is revoked, the row is marked inactive — subsequent requests return 403 immediately, regardless of payment.

@@ -7,6 +7,7 @@ import {
   type CreateAuthorizationInput,
 } from '@/lib/queries/agent-authorizations'
 import { fetchAgentOwner } from '@/lib/reputation/erc8004'
+import { PublicKey } from '@solana/web3.js'
 
 type RouteContext = { params: Promise<{ id: string }> }
 
@@ -15,10 +16,12 @@ interface AuthorizeAgentBody {
   agent_identifier?: string
   per_tx_cap_usd?: number
   per_day_cap_usd?: number
-  /** 'hmac' (default) or 'erc8004_tempo'. */
-  identity_kind?: 'hmac' | 'erc8004_tempo'
+  /** 'hmac' (default), 'erc8004_tempo', or 'sas_solana'. */
+  identity_kind?: 'hmac' | 'erc8004_tempo' | 'sas_solana'
   /** Required when identity_kind === 'erc8004_tempo'. uint256 as decimal string. */
   erc8004_agent_id?: string
+  /** Required when identity_kind === 'sas_solana'. Base58 32-byte pubkey. */
+  solana_pubkey?: string
 }
 
 export async function GET(req: NextRequest, ctx: RouteContext) {
@@ -77,6 +80,32 @@ export async function POST(req: NextRequest, ctx: RouteContext) {
       identity_kind: 'erc8004_tempo',
       erc8004_agent_id: agentId,
       erc8004_owner_address: owner.toLowerCase(),
+    }
+  } else if (identityKind === 'sas_solana') {
+    const rawPubkey = body.solana_pubkey?.trim()
+    if (!rawPubkey) {
+      return NextResponse.json(
+        { error: 'solana_pubkey is required when identity_kind is sas_solana' },
+        { status: 400 },
+      )
+    }
+    let normalizedPubkey: string
+    try {
+      normalizedPubkey = new PublicKey(rawPubkey).toBase58()
+    } catch {
+      return NextResponse.json(
+        { error: 'solana_pubkey must be a valid base58-encoded 32-byte Solana public key.' },
+        { status: 400 },
+      )
+    }
+    insertInput = {
+      employer_id: employerId,
+      label: body.label.trim(),
+      agent_identifier: `solana:${normalizedPubkey}`,
+      per_tx_cap_usd: perTx,
+      per_day_cap_usd: perDay,
+      identity_kind: 'sas_solana',
+      solana_pubkey: normalizedPubkey,
     }
   } else {
     if (!body.agent_identifier?.trim()) {

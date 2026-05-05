@@ -1,0 +1,202 @@
+---
+title: "MCP server"
+description: "Remlo's Model Context Protocol server. Streamable HTTP transport, OAuth 2.1 + PKCE, 19 tools (4 free + 15 paid)."
+---
+
+Remlo runs an MCP (Model Context Protocol) server at `https://www.remlo.xyz/api/mcp`. It is a second front door to the same OpenAPI surface — anything an x402 / MPP client can do via REST, an MCP client can do via JSON-RPC. The server is stateless, transport-authenticated via OAuth 2.1 with PKCE, and per-tool-paid via x402 / MPP exactly as the REST endpoints are.
+
+## Quick install
+
+```bash
+# Claude Code
+claude mcp add -s user --transport http remlo https://www.remlo.xyz/api/mcp
+
+# Codex CLI
+codex mcp add remlo --url https://www.remlo.xyz/api/mcp
+codex mcp login remlo
+```
+
+For Cursor / ChatGPT / Claude Desktop, paste `https://www.remlo.xyz/api/mcp` as a custom MCP HTTP connector. On first connect the client opens a browser tab to `/oauth/consent` for you to approve the connection with your Remlo (Privy) login.
+
+## Discovery
+
+| Resource | URL |
+|---|---|
+| MCP endpoint | `https://www.remlo.xyz/api/mcp` |
+| Protected resource metadata (RFC 9728) | `https://www.remlo.xyz/.well-known/oauth-protected-resource` |
+| Authorization server metadata (RFC 8414) | `https://www.remlo.xyz/.well-known/oauth-authorization-server` |
+| OpenAPI (with `x-mcp-server` extension) | `https://www.remlo.xyz/api/openapi.json` |
+
+The `x-mcp-server` extension on the OpenAPI doc points discovery-aware tooling (AgentCash, Sponge gateway probes, etc.) at the MCP server without an extra round trip.
+
+## Tools
+
+19 total: 4 free read-only + 15 paid. The full catalog and live prices are at `tools/list`. Selected highlights:
+
+| Tool | Backing endpoint | Price | Rails |
+|---|---|---|---|
+| `remlo_agents_directory` | `GET /api/agents/directory` | free | n/a |
+| `remlo_agents_profile` | `GET /api/agents/profile/{id}` | free | n/a |
+| `remlo_reputation_get` | `GET /api/reputation/{address}` | free | n/a |
+| `remlo_openapi_spec` | `GET /api/openapi.json` | free | n/a |
+| `remlo_treasury_yield_rates` | `GET /api/mpp/treasury/yield-rates` | $0.01 | Tempo / Base / Solana |
+| `remlo_compliance_check` | `POST /api/mpp/compliance/check` | $0.05 | Tempo / Base / Solana |
+| `remlo_memo_decode` | `POST /api/mpp/memo/decode` | $0.01 | Tempo / Base / Solana |
+| `remlo_agent_pay` | `POST /api/mpp/agent/pay` | $0.05 | Tempo / Base / Solana |
+| `remlo_agent_register` | `POST /api/mpp/agents/register` | $0.10 | Tempo / Base / Solana |
+| `remlo_payroll_execute` | `POST /api/mpp/payroll/execute` | $1.00 | Tempo only |
+| `remlo_employee_advance` | `POST /api/mpp/employee/advance` | $0.50 | Tempo only |
+| `remlo_bridge_offramp` | `POST /api/mpp/bridge/offramp` | $0.25 | Tempo only |
+| `remlo_treasury_optimize` | `POST /api/mpp/treasury/optimize` | $0.10 | Tempo only |
+
+Each tool's `_meta.remlo` field carries the live price, accepted rails, and protocol so MCP clients with a payment surface (ATXP, Sponge MCP, AgentCash) render pricing pre-call.
+
+## Authentication: two layers
+
+Tools that mutate employer state (`remlo_agent_pay`, `remlo_payroll_execute`, etc.) require **two separate proofs**:
+
+1. **Transport-level OAuth bearer** — proves which MCP client is calling. Issued by the OAuth flow described below; passed as `Authorization: Bearer <jwt>` to `/api/mcp`.
+2. **Per-tool payment + identity** — exactly as for the REST front door. The tool call envelope must carry `X-PAYMENT` (Base/Solana x402) or `Authorization: mpp ...` (Tempo MPP) for the payment, plus the Tier 1 / Tier 2 identity headers (`X-Agent-Identifier`, `X-Agent-Timestamp`, `X-Agent-Signature`) where the underlying handler requires them. See [Authentication](/docs/mpp-api/authentication) for header formats.
+
+Read tools (`remlo_agents_directory`, etc.) require only the transport bearer. Free.
+
+## OAuth 2.1 + PKCE flow (the long version)
+
+If your MCP client's `claude mcp add --transport http` already drives the flow for you, you can skip this section. Otherwise:
+
+### 1. Discover
+
+```bash
+curl https://www.remlo.xyz/.well-known/oauth-authorization-server
+```
+
+Returns `authorization_endpoint`, `token_endpoint`, `registration_endpoint`, supported PKCE methods (`S256` only), and supported grant types.
+
+### 2. Register the client (RFC 7591)
+
+```bash
+curl -X POST https://www.remlo.xyz/api/oauth/register \
+  -H 'content-type: application/json' \
+  -d '{
+    "client_name": "My MCP client",
+    "redirect_uris": ["http://localhost:3742/oauth/callback"]
+  }'
+```
+
+Returns:
+
+```json
+{
+  "client_id": "remlo-mcp-AbcDef123...",
+  "redirect_uris": ["http://localhost:3742/oauth/callback"],
+  "scope": "mcp:tools",
+  "token_endpoint_auth_method": "none",
+  "grant_types": ["authorization_code", "refresh_token"],
+  "response_types": ["code"]
+}
+```
+
+No `client_secret` — Remlo MCP is a public client. PKCE is the binding security property.
+
+### 3. Generate PKCE pair
+
+```ts
+import crypto from 'crypto'
+function base64url(buf: Buffer): string {
+  return buf.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+}
+const code_verifier = base64url(crypto.randomBytes(64)).slice(0, 96)
+const code_challenge = base64url(crypto.createHash('sha256').update(code_verifier).digest())
+```
+
+### 4. Open the authorize URL in the user's browser
+
+```
+https://www.remlo.xyz/api/oauth/authorize
+  ?response_type=code
+  &client_id=<from step 2>
+  &redirect_uri=http://localhost:3742/oauth/callback
+  &code_challenge=<from step 3>
+  &code_challenge_method=S256
+  &scope=mcp:tools
+  &state=<random>
+```
+
+The user is redirected to `/oauth/consent`. They sign into Remlo (Privy) if needed and approve. The consent page redirects to your `redirect_uri` with `?code=...&state=...`.
+
+### 5. Exchange the code for tokens
+
+```bash
+curl -X POST https://www.remlo.xyz/api/oauth/token \
+  -H 'content-type: application/x-www-form-urlencoded' \
+  -d 'grant_type=authorization_code&code=<from step 4>&code_verifier=<from step 3>&client_id=<from step 2>&redirect_uri=http://localhost:3742/oauth/callback'
+```
+
+Returns:
+
+```json
+{
+  "access_token": "<JWT, ES256, 1h TTL, audience=https://www.remlo.xyz/api/mcp>",
+  "refresh_token": "<opaque, 30d TTL, rotates on use>",
+  "token_type": "Bearer",
+  "expires_in": 3600,
+  "scope": "mcp:tools"
+}
+```
+
+### 6. Use the access token
+
+```bash
+curl -X POST https://www.remlo.xyz/api/mcp \
+  -H 'authorization: Bearer <access_token>' \
+  -H 'content-type: application/json' \
+  -H 'accept: application/json, text/event-stream' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
+```
+
+### 7. Refresh
+
+```bash
+curl -X POST https://www.remlo.xyz/api/oauth/token \
+  -H 'content-type: application/x-www-form-urlencoded' \
+  -d 'grant_type=refresh_token&refresh_token=<from step 5>&client_id=<from step 2>'
+```
+
+Returns a new access token + a new refresh token. The old refresh token is revoked atomically.
+
+## Calling a paid tool
+
+The MCP envelope is JSON-RPC; payment headers ride at the HTTP layer next to the bearer.
+
+```bash
+curl -X POST https://www.remlo.xyz/api/mcp \
+  -H 'authorization: Bearer <mcp access token>' \
+  -H 'X-PAYMENT: <base64 x402 payment payload>' \
+  -H 'X-Agent-Identifier: erc8004:tempo:42' \
+  -H 'X-Agent-Timestamp: 1762185600000' \
+  -H 'X-Agent-Signature: 0x...' \
+  -H 'content-type: application/json' \
+  -H 'accept: application/json, text/event-stream' \
+  -d '{
+    "jsonrpc": "2.0",
+    "id": 7,
+    "method": "tools/call",
+    "params": {
+      "name": "remlo_agent_pay",
+      "arguments": {
+        "employer_id": "...",
+        "recipient_wallet": "0x...",
+        "amount": "10.00"
+      }
+    }
+  }'
+```
+
+If you forget the `X-PAYMENT` header, the tool call returns `isError: true` with a structured 402 challenge in the content text. Read the `wwwAuthenticate` field, sign a payment, retry. AgentCash, Sponge Wallet, and ATXP-with-`@atxp/x402` all do this transparently.
+
+## What the MCP server isn't
+
+- **Not a payment processor.** Per-tool payments still go through the same x402 / MPP wrappers as the REST endpoints; the MCP server forwards headers, doesn't handle settlement itself.
+- **Not stateful.** No session storage. Each request stands alone — easier to reason about and serverless-friendly.
+- **Not a replacement for the REST endpoints.** Both front doors stay live. The MCP server is JSON-RPC ↔ HTTP shim, not a reimplementation.
+- **Not a gateway for arbitrary upstream APIs.** Only Remlo endpoints are exposed.
