@@ -1,14 +1,10 @@
 import { NextResponse } from 'next/server'
-import { createPublicClient, http, defineChain } from 'viem'
+import { createPublicClient, http } from 'viem'
 import { ethers } from 'ethers'
 import { signWithVincent } from '@/lib/vincent-agent'
+import { getTempoChain } from '@/lib/tempo/network'
 
-const tempoModerato = defineChain({
-  id: 42431,
-  name: 'Tempo Moderato',
-  nativeCurrency: { name: 'USD', symbol: 'USD', decimals: 6 },
-  rpcUrls: { default: { http: ['https://rpc.moderato.tempo.xyz'] } },
-})
+const tempoModerato = getTempoChain()
 
 /**
  * POST /api/demo/lit-sign

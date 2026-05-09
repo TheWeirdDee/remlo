@@ -2,11 +2,13 @@
 
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
-import { ChevronLeft, ExternalLink, Users, Wallet, AlertCircle } from 'lucide-react'
+import { toast } from 'sonner'
+import { ChevronLeft, ExternalLink, Users, Wallet, AlertCircle, FileDown, Loader2, Sheet } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { PayrollBadge } from '@/components/employee/PayrollBadge'
 import { useEmployer } from '@/lib/hooks/useEmployer'
 import { usePayrollRun } from '@/lib/hooks/useDashboard'
+import { usePrivyAuthedFetch } from '@/lib/hooks/usePrivyAuthedFetch'
 import { TEMPO_EXPLORER_URL } from '@/lib/constants'
 import { cn } from '@/lib/utils'
 
@@ -64,10 +66,17 @@ export default function PayrollRunDetailsPage({ params }: { params: Promise<{ ru
           <ChevronLeft className="w-4 h-4" />
           Back to Payroll
         </Button>
-        <h1 className="text-2xl font-bold text-[var(--text-primary)] tracking-tight">
-          Payroll Run Details
-        </h1>
-        <p className="font-mono text-xs text-[var(--text-muted)] mt-1">{runId}</p>
+        <div className="flex items-start justify-between gap-3 flex-wrap">
+          <div>
+            <h1 className="text-2xl font-bold text-[var(--text-primary)] tracking-tight">
+              Payroll Run Details
+            </h1>
+            <p className="font-mono text-xs text-[var(--text-muted)] mt-1">{runId}</p>
+          </div>
+          {employer?.id && data && (
+            <ExportButtons employerId={employer.id} runId={runId} />
+          )}
+        </div>
       </div>
 
       {isLoading && (
@@ -285,5 +294,71 @@ function PaymentItemRow({
         )}
       </div>
     </li>
+  )
+}
+
+/**
+ * ExportButtons — PDF + CSV download for the current run.
+ *
+ * Privy auth is bearer-based, so a plain <a href> can't fetch the file
+ * directly. We hit the API with the auth fetcher, blob the response, and
+ * trigger a download from a hidden anchor. Both buttons share state so the
+ * spinner + disabled feedback applies to whichever the user clicked.
+ */
+function ExportButtons({ employerId, runId }: { employerId: string; runId: string }) {
+  const authedFetch = usePrivyAuthedFetch()
+  const [busy, setBusy] = React.useState<null | 'pdf' | 'csv'>(null)
+
+  async function download(format: 'pdf' | 'csv') {
+    if (busy) return
+    setBusy(format)
+    try {
+      const response = await authedFetch(
+        `/api/employers/${employerId}/payroll/${runId}/export?format=${format}`,
+      )
+      if (!response.ok) {
+        const err = (await response.json().catch(() => ({}))) as { error?: string }
+        throw new Error(err.error ?? `Could not export ${format.toUpperCase()}`)
+      }
+      const blob = await response.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      const stamp = new Date().toISOString().slice(0, 10)
+      a.href = url
+      a.download = `payroll-${runId.slice(0, 8)}-${stamp}.${format}`
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      setTimeout(() => URL.revokeObjectURL(url), 1500)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Export failed')
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  return (
+    <div className="flex items-center gap-2">
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={() => void download('pdf')}
+        disabled={busy !== null}
+        className="gap-2"
+      >
+        {busy === 'pdf' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FileDown className="h-3.5 w-3.5" />}
+        Export PDF
+      </Button>
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={() => void download('csv')}
+        disabled={busy !== null}
+        className="gap-2"
+      >
+        {busy === 'csv' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sheet className="h-3.5 w-3.5" />}
+        Export CSV
+      </Button>
+    </div>
   )
 }

@@ -1,8 +1,9 @@
 'use client'
 
 import * as React from 'react'
+import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { ArrowLeft } from 'lucide-react'
+import { ArrowLeft, Zap } from 'lucide-react'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { useTeam } from '@/lib/hooks/useDashboard'
 import { useEmployer } from '@/lib/hooks/useEmployer'
@@ -38,6 +39,13 @@ export default function NewPayrollPage() {
             Send on-chain payments to your team in seconds.
           </p>
         </div>
+        <Link
+          href="/dashboard/payroll/auto"
+          className="ml-auto inline-flex items-center gap-1.5 rounded-lg border border-[var(--accent)]/30 bg-[var(--accent)]/5 px-3 py-1.5 text-xs font-medium text-[var(--accent)] hover:bg-[var(--accent)]/10"
+        >
+          <Zap className="h-3.5 w-3.5" />
+          Auto-Payroll (beta)
+        </Link>
       </div>
 
       {/* Wizard card */}

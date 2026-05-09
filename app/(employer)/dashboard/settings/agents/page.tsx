@@ -2,14 +2,14 @@
 
 import * as React from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Bot, Plus, Trash2, Shield, Loader2, Search, BadgeCheck, ExternalLink, ShieldAlert, Pause, Play, AlertTriangle } from 'lucide-react'
+import { Bot, Plus, Trash2, Shield, Loader2, Search, BadgeCheck, ExternalLink, ShieldAlert, Pause, Play, AlertTriangle, Sheet, FileDown } from 'lucide-react'
 import { toast } from 'sonner'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { SectionHeader } from '@/components/ui/SectionHeader'
 import { useEmployer } from '@/lib/hooks/useEmployer'
-import { usePrivyAuthedJson } from '@/lib/hooks/usePrivyAuthedFetch'
+import { usePrivyAuthedFetch, usePrivyAuthedJson } from '@/lib/hooks/usePrivyAuthedFetch'
 
 interface AgentAuthorization {
   id: string
@@ -266,6 +266,8 @@ export default function AgentsSettingsPage(): React.ReactElement {
         title="Authorized Agents"
         description="Grant external AI agents permission to trigger payments from your treasury. Every agent gets a per-transaction and per-day spend cap. Calls flow through the x402-gated /api/mpp/agent/pay endpoint."
       />
+
+      {employer?.id && <SpendOverview employerId={employer.id} />}
 
       <div className="rounded-2xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-5 sm:p-6">
         <div className="flex items-center gap-2 mb-4">
@@ -914,6 +916,130 @@ function BrowseDirectoryModal({ onClose, onPick }: BrowseDirectoryModalProps) {
           </a>
         </footer>
       </div>
+    </div>
+  )
+}
+
+/**
+ * SpendOverview — three-tile rollup of MPP session activity for this
+ * employer's authorized agents, plus a CSV export. Lives directly under the
+ * page header so an admin scanning agents can see "is anyone actually
+ * spending against my treasury?" without a separate page.
+ *
+ * The CSV export is the receipt-trail piece — accountants and audit
+ * reviewers want a flat file. The download wraps the bearer-authed fetch
+ * because <a href> can't carry the Privy token.
+ */
+function SpendOverview({ employerId }: { employerId: string }) {
+  const fetchJson = usePrivyAuthedJson()
+  const authedFetch = usePrivyAuthedFetch()
+  const [downloading, setDownloading] = React.useState(false)
+
+  const summary = useQuery<{
+    sessions: Array<{ id: string; total_spent: number; status: string }>
+    summary: {
+      totalSpend: number
+      activeCount: number
+      distinctAgents: number
+      sessionCount: number
+    }
+  }>({
+    queryKey: ['employer-agent-spend', employerId],
+    queryFn: () => fetchJson(`/api/employers/${employerId}/agent-payments`),
+  })
+
+  async function downloadCsv() {
+    if (downloading) return
+    setDownloading(true)
+    try {
+      const response = await authedFetch(
+        `/api/employers/${employerId}/agent-payments?format=csv`,
+      )
+      if (!response.ok) {
+        throw new Error('Could not export CSV')
+      }
+      const blob = await response.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `agent-spend-${new Date().toISOString().slice(0, 10)}.csv`
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      setTimeout(() => URL.revokeObjectURL(url), 1500)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Export failed')
+    } finally {
+      setDownloading(false)
+    }
+  }
+
+  const totalSpend = summary.data?.summary.totalSpend ?? 0
+  const activeCount = summary.data?.summary.activeCount ?? 0
+  const distinctAgents = summary.data?.summary.distinctAgents ?? 0
+  const sessionCount = summary.data?.summary.sessionCount ?? 0
+
+  const fmt = new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })
+
+  return (
+    <section className="rounded-2xl border border-[var(--border-default)] bg-[var(--bg-surface)]">
+      <header className="flex items-center justify-between border-b border-[var(--border-default)] px-5 py-4">
+        <div className="flex items-center gap-2">
+          <FileDown className="h-4 w-4 text-[var(--text-muted)]" />
+          <h3 className="text-sm font-semibold text-[var(--text-primary)]">
+            Agent spend &amp; activity
+          </h3>
+        </div>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => void downloadCsv()}
+          disabled={downloading || sessionCount === 0}
+          className="gap-2"
+          title={sessionCount === 0 ? 'No agent sessions yet' : 'Download a CSV statement of every agent payment'}
+        >
+          {downloading ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <Sheet className="h-3.5 w-3.5" />
+          )}
+          Download CSV
+        </Button>
+      </header>
+      <div className="grid gap-px bg-[var(--border-default)] sm:grid-cols-4">
+        <Tile label="Total spend" value={fmt.format(totalSpend)} hint={`${sessionCount} session${sessionCount === 1 ? '' : 's'}`} />
+        <Tile label="Active sessions" value={String(activeCount)} hint={activeCount > 0 ? 'Open & accruing' : 'None right now'} />
+        <Tile label="Distinct agents" value={String(distinctAgents)} hint="Unique agent wallets" />
+        <Tile
+          label="Largest session"
+          value={
+            summary.data?.sessions?.length
+              ? fmt.format(
+                  Math.max(
+                    0,
+                    ...summary.data.sessions.map((s) => Number(s.total_spent ?? 0)),
+                  ),
+                )
+              : fmt.format(0)
+          }
+          hint="By total_spent"
+        />
+      </div>
+    </section>
+  )
+}
+
+function Tile({ label, value, hint }: { label: string; value: string; hint?: string }) {
+  return (
+    <div className="bg-[var(--bg-surface)] px-5 py-4">
+      <p className="text-[10px] uppercase tracking-[0.14em] text-[var(--text-muted)]">{label}</p>
+      <p className="mt-2 text-xl font-semibold text-[var(--text-primary)]">{value}</p>
+      {hint && <p className="mt-1 text-[11px] text-[var(--text-muted)]">{hint}</p>}
     </div>
   )
 }

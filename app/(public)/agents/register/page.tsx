@@ -1,6 +1,6 @@
 import * as React from 'react'
 import Link from 'next/link'
-import { TEMPO_RPC_URL } from '@/lib/constants'
+import { getTempoNetwork } from '@/lib/tempo/network'
 import { RegisterFlow } from './RegisterFlow'
 
 export const metadata = {
@@ -9,8 +9,7 @@ export const metadata = {
     'Mint an ERC-8004 identity on Tempo, authorize against any Remlo employer, and start transacting. Full Tier 2 onboarding for AgentCash agents and any x402 client.',
 }
 
-const TEMPO_CHAIN_ID = 42431
-const TEMPO_EXPLORER_BASE = 'https://explore.moderato.tempo.xyz'
+const NETWORK = getTempoNetwork()
 
 export default function RegisterAgentPage() {
   const identityRegistry = process.env.NEXT_PUBLIC_ERC8004_IDENTITY_REGISTRY ?? null
@@ -57,9 +56,9 @@ export default function RegisterAgentPage() {
 
       <RegisterFlow
         identityRegistry={identityRegistry}
-        tempoChainId={TEMPO_CHAIN_ID}
-        tempoRpcUrl={TEMPO_RPC_URL}
-        explorerBase={TEMPO_EXPLORER_BASE}
+        tempoChainId={NETWORK.chainId}
+        tempoRpcUrl={NETWORK.rpcUrl}
+        explorerBase={NETWORK.explorerUrl}
       />
 
       <footer className="pt-6 border-t border-[var(--border-default)] text-xs text-[var(--text-muted)] space-y-1">
