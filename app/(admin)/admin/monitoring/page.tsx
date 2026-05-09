@@ -45,6 +45,13 @@ export default function AdminMonitoringPage() {
           <ShieldOff className="h-3.5 w-3.5 text-[var(--text-muted)]" />
           Email suppressions
         </Link>
+        <Link
+          href="/admin/crons"
+          className="inline-flex items-center gap-2 rounded-lg border border-[var(--border-default)] bg-[var(--bg-surface)] px-3 py-2 text-xs font-medium text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-subtle)]"
+        >
+          <Clock3 className="h-3.5 w-3.5 text-[var(--text-muted)]" />
+          Cron jobs
+        </Link>
       </div>
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">

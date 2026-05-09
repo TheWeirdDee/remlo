@@ -289,6 +289,42 @@ export type Database = {
           },
         ]
       }
+      cron_runs: {
+        Row: {
+          cron_name: string
+          duration_ms: number | null
+          error_message: string | null
+          finished_at: string | null
+          id: string
+          metadata: Json | null
+          records_processed: number
+          started_at: string
+          status: string
+        }
+        Insert: {
+          cron_name: string
+          duration_ms?: number | null
+          error_message?: string | null
+          finished_at?: string | null
+          id?: string
+          metadata?: Json | null
+          records_processed?: number
+          started_at?: string
+          status?: string
+        }
+        Update: {
+          cron_name?: string
+          duration_ms?: number | null
+          error_message?: string | null
+          finished_at?: string | null
+          id?: string
+          metadata?: Json | null
+          records_processed?: number
+          started_at?: string
+          status?: string
+        }
+        Relationships: []
+      }
       email_events: {
         Row: {
           created_at: string

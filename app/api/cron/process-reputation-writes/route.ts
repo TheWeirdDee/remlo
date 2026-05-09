@@ -8,6 +8,7 @@ import {
 import { processSasReputationWrite } from '@/lib/reputation/sas'
 import { processErc8004ReputationWrite } from '@/lib/reputation/erc8004'
 import { authorizeCronRequest } from '@/lib/cron-auth'
+import { withCronRun } from '@/lib/cron-runs'
 import { createNotification } from '@/lib/notifications'
 import { createServerClient } from '@/lib/supabase-server'
 
@@ -83,84 +84,102 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   const unauthorized = authorizeCronRequest(req)
   if (unauthorized) return unauthorized
 
-  const pending = await fetchPendingReputationWrites(MAX_PER_INVOCATION, 5)
+  return withCronRun('process-reputation-writes', async () => {
+    const pending = await fetchPendingReputationWrites(MAX_PER_INVOCATION, 5)
 
-  let processed = 0
-  let written = 0
-  let failed = 0
-  let gaveUp = 0
-  const errors: { id: string; error: string }[] = []
+    let processed = 0
+    let written = 0
+    let failed = 0
+    let gaveUp = 0
+    const errors: { id: string; error: string }[] = []
 
-  const solanaWalletId = process.env.PRIVY_SOLANA_AGENT_WALLET_ID
-  const solanaWalletAddress = process.env.PRIVY_SOLANA_AGENT_WALLET_ADDRESS
+    const solanaWalletId = process.env.PRIVY_SOLANA_AGENT_WALLET_ID
+    const solanaWalletAddress = process.env.PRIVY_SOLANA_AGENT_WALLET_ADDRESS
 
-  for (const row of pending) {
-    processed++
-    try {
-      if (row.chain === 'solana') {
-        if (!solanaWalletId || !solanaWalletAddress) {
-          throw new Error('Privy Solana wallet not configured')
-        }
-        const result = await processSasReputationWrite(
-          row,
-          solanaWalletId,
-          solanaWalletAddress,
-        )
-        await markReputationWriteWritten(row.id, {
-          attestation_pda: result.attestationPda,
-          tx_signature: result.signature,
-        })
-        written++
-      } else if (row.chain === 'tempo') {
-        const result = await processErc8004ReputationWrite(row)
-        await markReputationWriteWritten(row.id, {
-          tx_signature: result.txHash,
-          signer_path: result.signerPath,
-        })
-        written++
-      } else {
-        throw new Error(`Unknown chain: ${(row as ReputationWrite).chain}`)
-      }
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'unknown error'
-      const nextAttempts = row.attempts + 1
-      await markReputationWriteFailed(row.id, nextAttempts, errorMessage, 5, row.chain)
-      if (nextAttempts >= 5) {
-        gaveUp++
-        // Surface terminal failures to the employer dashboard. We only fire on
-        // giving_up (5+ attempts) so retryable transient errors don't spam the
-        // bell.
-        const employerId = await resolveEmployerForReputationWrite(row)
-        if (employerId) {
-          void createNotification({
-            employerId,
-            kind: 'reputation_write_failed',
-            severity: 'error',
-            title: 'Reputation write gave up',
-            body: `${row.chain === 'solana' ? 'SAS attestation' : 'ERC-8004 feedback'} for ${row.subject_address.slice(0, 10)}… failed after 5 attempts. Last error: ${errorMessage.slice(0, 200)}`,
-            link: `/dashboard/reputation`,
-            metadata: {
-              reputation_write_id: row.id,
-              chain: row.chain,
-              source_type: row.source_type,
-              source_id: row.source_id,
-              error: errorMessage.slice(0, 500),
-            },
+    for (const row of pending) {
+      processed++
+      try {
+        if (row.chain === 'solana') {
+          if (!solanaWalletId || !solanaWalletAddress) {
+            throw new Error('Privy Solana wallet not configured')
+          }
+          const result = await processSasReputationWrite(
+            row,
+            solanaWalletId,
+            solanaWalletAddress,
+          )
+          await markReputationWriteWritten(row.id, {
+            attestation_pda: result.attestationPda,
+            tx_signature: result.signature,
           })
+          written++
+        } else if (row.chain === 'tempo') {
+          const result = await processErc8004ReputationWrite(row)
+          await markReputationWriteWritten(row.id, {
+            tx_signature: result.txHash,
+            signer_path: result.signerPath,
+          })
+          written++
+        } else {
+          throw new Error(`Unknown chain: ${(row as ReputationWrite).chain}`)
         }
-      } else {
-        failed++
+      } catch (err) {
+        const errorMessage = err instanceof Error ? err.message : 'unknown error'
+        const nextAttempts = row.attempts + 1
+        await markReputationWriteFailed(row.id, nextAttempts, errorMessage, 5, row.chain)
+        if (nextAttempts >= 5) {
+          gaveUp++
+          // Surface terminal failures to the employer dashboard. We only fire on
+          // giving_up (5+ attempts) so retryable transient errors don't spam the
+          // bell.
+          const employerId = await resolveEmployerForReputationWrite(row)
+          if (employerId) {
+            void createNotification({
+              employerId,
+              kind: 'reputation_write_failed',
+              severity: 'error',
+              title: 'Reputation write gave up',
+              body: `${row.chain === 'solana' ? 'SAS attestation' : 'ERC-8004 feedback'} for ${row.subject_address.slice(0, 10)}… failed after 5 attempts. Last error: ${errorMessage.slice(0, 200)}`,
+              link: `/dashboard/reputation`,
+              metadata: {
+                reputation_write_id: row.id,
+                chain: row.chain,
+                source_type: row.source_type,
+                source_id: row.source_id,
+                error: errorMessage.slice(0, 500),
+              },
+            })
+          }
+        } else {
+          failed++
+        }
+        errors.push({ id: row.id, error: errorMessage })
       }
-      errors.push({ id: row.id, error: errorMessage })
     }
-  }
 
-  return NextResponse.json({
-    processed,
-    written,
-    failed,
-    gave_up: gaveUp,
-    errors,
+    const totalErrors = failed + gaveUp
+    const status =
+      totalErrors > 0
+        ? (written > 0 ? 'partial' : 'failed')
+        : (processed === 0 ? 'no_op' : 'success')
+    return {
+      outcome: {
+        status,
+        records_processed: written,
+        metadata: { processed, written, failed, gave_up: gaveUp },
+        error_message:
+          totalErrors > 0
+            ? errors.slice(0, 5).map((e) => `${e.id}: ${e.error}`).join(' | ').slice(0, 4000)
+            : null,
+      },
+      result: NextResponse.json({
+        processed,
+        written,
+        failed,
+        gave_up: gaveUp,
+        errors,
+      }),
+    }
   })
 }
 

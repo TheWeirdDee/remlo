@@ -8,8 +8,11 @@ import {
   toBytes,
 } from 'viem'
 import { privateKeyToAccount } from 'viem/accounts'
+import type { SupabaseClient } from '@supabase/supabase-js'
 import { authorizeCronRequest } from '@/lib/cron-auth'
 import { createServerClient } from '@/lib/supabase-server'
+import { withCronRun } from '@/lib/cron-runs'
+import type { Database } from '@/lib/database.types'
 import { decryptAccessKey } from '@/lib/tempo/access-keys'
 import { getTempoChain, getTempoNetwork } from '@/lib/tempo/network'
 import { PAYROLL_BATCHER_ADDRESS } from '@/lib/constants'
@@ -60,89 +63,87 @@ interface AuthRow {
   cycles_executed: number
 }
 
-interface EmployerRow {
-  id: string
-  company_name: string
-  owner_user_id: string
-  employer_admin_wallet: string | null
-  bridge_customer_id: string | null
-  bridge_virtual_account_id: string | null
-}
-
-interface EmployeeRow {
-  id: string
-  wallet_address: string | null
-  salary_amount: number | null
-  salary_currency: string | null
-  kyc_status: string | null
-}
-
 export async function GET(req: NextRequest) {
   const denied = authorizeCronRequest(req)
   if (denied) return denied
 
-  const supabase = createServerClient()
-  const nowUnix = Math.floor(Date.now() / 1000)
+  return withCronRun('autopayroll-tick', async () => {
+    const supabase = createServerClient()
+    const nowUnix = Math.floor(Date.now() / 1000)
 
-  // Pull every active row; filter "due" client-side (period_seconds varies per row).
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data: rows, error: listErr } = await supabase
-    .from('autopayroll_authorizations')
-    .select(
-      'id, employer_id, status, access_key_address, access_key_encrypted, token_address, per_period_amount, period_seconds, expires_at_unix, scoped_target, scoped_selector, last_run_at, cycles_executed',
-    )
-    .eq('status', 'active')
-    .order('last_run_at', { ascending: true, nullsFirst: true })
-    .limit(50)
-  if (listErr) {
-    return NextResponse.json({ error: listErr.message }, { status: 500 })
-  }
-
-  const summary = {
-    network: getTempoNetwork().name,
-    examined: 0,
-    due: 0,
-    expired: 0,
-    skipped_no_recipients: 0,
-    succeeded: 0,
-    failed: 0,
-  }
-  const events: Array<{ id: string; outcome: string; detail?: string; txHash?: Hex }> = []
-
-  for (const row of (rows ?? []) as AuthRow[]) {
-    summary.examined++
-
-    if (row.expires_at_unix > 0 && row.expires_at_unix <= nowUnix) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      await supabase
-        .from('autopayroll_authorizations')
-        .update({ status: 'expired' })
-        .eq('id', row.id)
-      summary.expired++
-      events.push({ id: row.id, outcome: 'expired' })
-      continue
+    // Pull every active row; filter "due" client-side (period_seconds varies per row).
+    const { data: rows, error: listErr } = await supabase
+      .from('autopayroll_authorizations')
+      .select(
+        'id, employer_id, status, access_key_address, access_key_encrypted, token_address, per_period_amount, period_seconds, expires_at_unix, scoped_target, scoped_selector, last_run_at, cycles_executed',
+      )
+      .eq('status', 'active')
+      .order('last_run_at', { ascending: true, nullsFirst: true })
+      .limit(50)
+    if (listErr) {
+      throw new Error(`autopayroll list query failed: ${listErr.message}`)
     }
 
-    const lastRunUnix = row.last_run_at ? Math.floor(new Date(row.last_run_at).getTime() / 1000) : 0
-    if (lastRunUnix + row.period_seconds > nowUnix) {
-      continue // not due yet
+    const summary = {
+      network: getTempoNetwork().name,
+      examined: 0,
+      due: 0,
+      expired: 0,
+      skipped_no_recipients: 0,
+      succeeded: 0,
+      failed: 0,
     }
-    summary.due++
+    const events: Array<{ id: string; outcome: string; detail?: string; txHash?: Hex }> = []
 
-    const tickResult = await runOneTick({ supabase, row, nowUnix })
-    if (tickResult.outcome === 'no_recipients') summary.skipped_no_recipients++
-    else if (tickResult.outcome === 'success') summary.succeeded++
-    else summary.failed++
+    for (const row of (rows ?? []) as AuthRow[]) {
+      summary.examined++
 
-    events.push({
-      id: row.id,
-      outcome: tickResult.outcome,
-      detail: tickResult.detail,
-      txHash: tickResult.txHash,
-    })
-  }
+      if (row.expires_at_unix > 0 && row.expires_at_unix <= nowUnix) {
+        await supabase
+          .from('autopayroll_authorizations')
+          .update({ status: 'expired' })
+          .eq('id', row.id)
+        summary.expired++
+        events.push({ id: row.id, outcome: 'expired' })
+        continue
+      }
 
-  return NextResponse.json({ summary, events })
+      const lastRunUnix = row.last_run_at ? Math.floor(new Date(row.last_run_at).getTime() / 1000) : 0
+      if (lastRunUnix + row.period_seconds > nowUnix) {
+        continue // not due yet
+      }
+      summary.due++
+
+      const tickResult = await runOneTick({ supabase, row, nowUnix })
+      if (tickResult.outcome === 'no_recipients') summary.skipped_no_recipients++
+      else if (tickResult.outcome === 'success') summary.succeeded++
+      else summary.failed++
+
+      events.push({
+        id: row.id,
+        outcome: tickResult.outcome,
+        detail: tickResult.detail,
+        txHash: tickResult.txHash,
+      })
+    }
+
+    const status =
+      summary.failed > 0
+        ? (summary.succeeded > 0 ? 'partial' : 'failed')
+        : (summary.examined === 0 || summary.due === 0 ? 'no_op' : 'success')
+    return {
+      outcome: {
+        status,
+        records_processed: summary.succeeded + summary.failed,
+        metadata: { ...summary, eventCount: events.length },
+        error_message:
+          summary.failed > 0
+            ? events.filter((e) => e.outcome === 'failed').map((e) => e.detail).filter(Boolean).slice(0, 5).join(' | ').slice(0, 4000)
+            : null,
+      },
+      result: NextResponse.json({ summary, events }),
+    }
+  })
 }
 
 interface TickResult {
@@ -152,8 +153,7 @@ interface TickResult {
 }
 
 interface TickArgs {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  supabase: any
+  supabase: SupabaseClient<Database>
   row: AuthRow
   nowUnix: number
 }
@@ -166,12 +166,12 @@ async function runOneTick({ supabase, row, nowUnix }: TickArgs): Promise<TickRes
       .from('employers')
       .select('id, company_name, owner_user_id, employer_admin_wallet, bridge_customer_id, bridge_virtual_account_id')
       .eq('id', row.employer_id)
-      .maybeSingle() as Promise<{ data: EmployerRow | null }>,
+      .maybeSingle(),
     supabase
       .from('employees')
       .select('id, wallet_address, salary_amount, salary_currency, kyc_status')
       .eq('employer_id', row.employer_id)
-      .eq('active', true) as Promise<{ data: EmployeeRow[] | null }>,
+      .eq('active', true),
   ])
 
   if (!employer) return failTick(supabase, row, 'employer_not_found')
@@ -183,7 +183,6 @@ async function runOneTick({ supabase, row, nowUnix }: TickArgs): Promise<TickRes
     (e) => e.wallet_address && (e.kyc_status === 'approved' || e.kyc_status === null) && Number(e.salary_amount ?? 0) > 0,
   )
   if (eligible.length === 0) {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await supabase
       .from('autopayroll_authorizations')
       .update({
@@ -207,7 +206,6 @@ async function runOneTick({ supabase, row, nowUnix }: TickArgs): Promise<TickRes
   // Mark "in-flight" by stamping last_run_at BEFORE broadcasting. A
   // concurrent invocation will see this and skip the row. If the broadcast
   // fails, we'll overwrite last_run_status further down.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   await supabase
     .from('autopayroll_authorizations')
     .update({ last_run_at: new Date(nowUnix * 1000).toISOString() })
@@ -235,7 +233,6 @@ async function runOneTick({ supabase, row, nowUnix }: TickArgs): Promise<TickRes
     return failTick(supabase, row, detail, true)
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   await supabase
     .from('autopayroll_authorizations')
     .update({
@@ -250,8 +247,7 @@ async function runOneTick({ supabase, row, nowUnix }: TickArgs): Promise<TickRes
 }
 
 async function failTick(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  supabase: any,
+  supabase: SupabaseClient<Database>,
   row: AuthRow,
   detail: string,
   pause = false,

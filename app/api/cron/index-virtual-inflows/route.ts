@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { type Address, type Hex, parseAbiItem, getAddress, getEventSelector } from 'viem'
 import { authorizeCronRequest } from '@/lib/cron-auth'
 import { createServerClient } from '@/lib/supabase-server'
+import { withCronRun } from '@/lib/cron-runs'
 import { publicClient } from '@/lib/contracts'
 import { TEMPO_TOKENS } from '@/lib/tempo/system-contracts'
 import { decodeVirtualAddress } from '@/lib/tempo/virtual-addresses'
@@ -63,141 +64,155 @@ export async function GET(req: NextRequest) {
   const denied = authorizeCronRequest(req)
   if (denied) return denied
 
-  const supabase = createServerClient()
+  return withCronRun('index-virtual-inflows', async () => {
+    const supabase = createServerClient()
 
-  // Pull every employer with a registered master.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data: masters } = await supabase
-    .from('employers')
-    .select('id, virtual_master_id, virtual_master_address')
-    .not('virtual_master_id', 'is', null)
-    .not('virtual_master_address', 'is', null)
+    // Pull every employer with a registered master.
+    const { data: masters } = await supabase
+      .from('employers')
+      .select('id, virtual_master_id, virtual_master_address')
+      .not('virtual_master_id', 'is', null)
+      .not('virtual_master_address', 'is', null)
 
-  const list = (masters ?? []) as MasterRow[]
-  if (list.length === 0) {
-    return NextResponse.json({ network: getTempoNetwork().name, masters: 0, hits: 0 })
-  }
-
-  const head = await publicClient.getBlockNumber()
-  const fromBlock = head > LOOKBACK_BLOCKS ? head - LOOKBACK_BLOCKS : 0n
-
-  const summary = {
-    network: getTempoNetwork().name,
-    masters: list.length,
-    fromBlock: fromBlock.toString(),
-    toBlock: head.toString(),
-    scanned: 0,
-    hits: 0,
-    inserted: 0,
-    duplicates: 0,
-    errors: 0,
-  }
-
-  // Pre-build an employee-by-userTag lookup for efficient employee_id
-  // resolution. The lookup is per-employer because multiple employers can
-  // collide on a userTag (it's only 6 bytes per master, but two masters
-  // can produce identical tags by coincidence).
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data: employees } = await supabase
-    .from('employees')
-    .select('id, employer_id')
-    .in(
-      'employer_id',
-      list.map((m) => m.id),
-    )
-    .eq('active', true)
-
-  // We'll resolve userTag → employee_id by deriving the tag for each
-  // employee. Lazy-resolve to avoid keccak'ing every employee on every
-  // tick — only when we actually have an inflow to map.
-  const employeeMap = new Map<string, Array<{ id: string; employer_id: string }>>()
-  for (const e of (employees ?? []) as Array<{ id: string; employer_id: string }>) {
-    if (!employeeMap.has(e.employer_id)) employeeMap.set(e.employer_id, [])
-    employeeMap.get(e.employer_id)!.push(e)
-  }
-
-  for (const master of list) {
-    const masterAddr = getAddress(master.virtual_master_address) as Address
-    const employerEmployees = employeeMap.get(master.id) ?? []
-
-    // Build userTag → employee_id lookup once per master.
-    const tagToEmployee = new Map<string, string>()
-    for (const emp of employerEmployees) {
-      const tag = await deriveTagAsync(master.id, emp.id)
-      tagToEmployee.set(tag.toLowerCase(), emp.id)
-    }
-
-    for (const token of KNOWN_TOKENS) {
-      try {
-        // `eth_getLogs` filtered by topic — `topics[2]` is the indexed `to`
-        // field. Encode the master address as a 32-byte topic value.
-        const masterTopic = ('0x' + masterAddr.slice(2).toLowerCase().padStart(64, '0')) as Hex
-        const logs = await publicClient.getLogs({
-          address: token.address,
-          event: TRANSFER_EVENT,
-          args: { to: masterAddr },
-          fromBlock,
-          toBlock: head,
-        })
-        // The `args` filter above already does it, but viem occasionally
-        // returns soft matches on the encoded topic — we double-check.
-        for (const log of logs) {
-          summary.scanned++
-          const fromAddr = log.args.from as Address | undefined
-          if (!fromAddr) continue
-
-          const decoded = decodeVirtualAddress(fromAddr)
-          if (!decoded) continue
-          if (decoded.masterId.toLowerCase() !== master.virtual_master_id.toLowerCase()) continue
-          if (!log.transactionHash || log.logIndex === null || log.logIndex === undefined) continue
-          summary.hits++
-
-          const employeeId = tagToEmployee.get(decoded.userTag.toLowerCase()) ?? null
-
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const { error } = await supabase.from('virtual_address_inflows').insert({
-            employer_id: master.id,
-            employee_id: employeeId,
-            user_tag: decoded.userTag,
-            token_address: token.address.toLowerCase(),
-            amount: (log.args.value as bigint).toString(),
-            decimals: token.decimals,
-            symbol: token.symbol,
-            tx_hash: log.transactionHash,
-            block_number: Number(log.blockNumber ?? 0),
-            log_index: log.logIndex,
-            sender_address: null, // outer-leg sender requires another log read; deferred.
-          })
-          if (error) {
-            // Unique-constraint violations are expected (we re-scan overlapping windows).
-            const msg = error.message ?? String(error)
-            if (msg.toLowerCase().includes('duplicate') || msg.toLowerCase().includes('unique')) {
-              summary.duplicates++
-            } else {
-              summary.errors++
-              console.error('[virtual-inflows-indexer] insert failed', error)
-            }
-            continue
-          }
-          summary.inserted++
-        }
-
-        // Reference `masterTopic` so it isn't tree-shaken — it's the
-        // raw-RPC fallback shape if we ever need to bypass viem's
-        // type-checked `event` filter.
-        void masterTopic
-      } catch (err) {
-        summary.errors++
-        console.error('[virtual-inflows-indexer] getLogs failed', {
-          master: master.virtual_master_id,
-          token: token.symbol,
-          error: err instanceof Error ? err.message : err,
-        })
+    const list = (masters ?? []) as MasterRow[]
+    if (list.length === 0) {
+      return {
+        outcome: { status: 'no_op', metadata: { network: getTempoNetwork().name, masters: 0 } },
+        result: NextResponse.json({ network: getTempoNetwork().name, masters: 0, hits: 0 }),
       }
     }
-  }
 
-  return NextResponse.json(summary)
+    const head = await publicClient.getBlockNumber()
+    const fromBlock = head > LOOKBACK_BLOCKS ? head - LOOKBACK_BLOCKS : 0n
+
+    const summary = {
+      network: getTempoNetwork().name,
+      masters: list.length,
+      fromBlock: fromBlock.toString(),
+      toBlock: head.toString(),
+      scanned: 0,
+      hits: 0,
+      inserted: 0,
+      duplicates: 0,
+      errors: 0,
+    }
+
+    // Pre-build an employee-by-userTag lookup for efficient employee_id
+    // resolution. The lookup is per-employer because multiple employers can
+    // collide on a userTag (it's only 6 bytes per master, but two masters
+    // can produce identical tags by coincidence).
+    const { data: employees } = await supabase
+      .from('employees')
+      .select('id, employer_id')
+      .in(
+        'employer_id',
+        list.map((m) => m.id),
+      )
+      .eq('active', true)
+
+    // We'll resolve userTag → employee_id by deriving the tag for each
+    // employee. Lazy-resolve to avoid keccak'ing every employee on every
+    // tick — only when we actually have an inflow to map.
+    const employeeMap = new Map<string, Array<{ id: string; employer_id: string }>>()
+    for (const e of (employees ?? []) as Array<{ id: string; employer_id: string }>) {
+      if (!employeeMap.has(e.employer_id)) employeeMap.set(e.employer_id, [])
+      employeeMap.get(e.employer_id)!.push(e)
+    }
+
+    for (const master of list) {
+      const masterAddr = getAddress(master.virtual_master_address) as Address
+      const employerEmployees = employeeMap.get(master.id) ?? []
+
+      // Build userTag → employee_id lookup once per master.
+      const tagToEmployee = new Map<string, string>()
+      for (const emp of employerEmployees) {
+        const tag = await deriveTagAsync(master.id, emp.id)
+        tagToEmployee.set(tag.toLowerCase(), emp.id)
+      }
+
+      for (const token of KNOWN_TOKENS) {
+        try {
+          // `eth_getLogs` filtered by topic — `topics[2]` is the indexed `to`
+          // field. Encode the master address as a 32-byte topic value.
+          const masterTopic = ('0x' + masterAddr.slice(2).toLowerCase().padStart(64, '0')) as Hex
+          const logs = await publicClient.getLogs({
+            address: token.address,
+            event: TRANSFER_EVENT,
+            args: { to: masterAddr },
+            fromBlock,
+            toBlock: head,
+          })
+          // The `args` filter above already does it, but viem occasionally
+          // returns soft matches on the encoded topic — we double-check.
+          for (const log of logs) {
+            summary.scanned++
+            const fromAddr = log.args.from as Address | undefined
+            if (!fromAddr) continue
+
+            const decoded = decodeVirtualAddress(fromAddr)
+            if (!decoded) continue
+            if (decoded.masterId.toLowerCase() !== master.virtual_master_id.toLowerCase()) continue
+            if (!log.transactionHash || log.logIndex === null || log.logIndex === undefined) continue
+            summary.hits++
+
+            const employeeId = tagToEmployee.get(decoded.userTag.toLowerCase()) ?? null
+
+            const { error } = await supabase.from('virtual_address_inflows').insert({
+              employer_id: master.id,
+              employee_id: employeeId,
+              user_tag: decoded.userTag,
+              token_address: token.address.toLowerCase(),
+              amount: (log.args.value as bigint).toString(),
+              decimals: token.decimals,
+              symbol: token.symbol,
+              tx_hash: log.transactionHash,
+              block_number: Number(log.blockNumber ?? 0),
+              log_index: log.logIndex,
+              sender_address: null, // outer-leg sender requires another log read; deferred.
+            })
+            if (error) {
+              // Unique-constraint violations are expected (we re-scan overlapping windows).
+              const msg = error.message ?? String(error)
+              if (msg.toLowerCase().includes('duplicate') || msg.toLowerCase().includes('unique')) {
+                summary.duplicates++
+              } else {
+                summary.errors++
+                console.error('[virtual-inflows-indexer] insert failed', error)
+              }
+              continue
+            }
+            summary.inserted++
+          }
+
+          // Reference `masterTopic` so it isn't tree-shaken — it's the
+          // raw-RPC fallback shape if we ever need to bypass viem's
+          // type-checked `event` filter.
+          void masterTopic
+        } catch (err) {
+          summary.errors++
+          console.error('[virtual-inflows-indexer] getLogs failed', {
+            master: master.virtual_master_id,
+            token: token.symbol,
+            error: err instanceof Error ? err.message : err,
+          })
+        }
+      }
+    }
+
+    const status =
+      summary.errors > 0
+        ? (summary.inserted > 0 ? 'partial' : 'failed')
+        : (summary.inserted === 0 ? 'no_op' : 'success')
+    return {
+      outcome: {
+        status,
+        records_processed: summary.inserted,
+        metadata: summary,
+        error_message: summary.errors > 0 ? `${summary.errors} log/insert errors — see function logs` : null,
+      },
+      result: NextResponse.json(summary),
+    }
+  })
 }
 
 /**
