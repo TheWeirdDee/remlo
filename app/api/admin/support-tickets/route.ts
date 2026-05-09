@@ -32,33 +32,43 @@ export async function GET(req: NextRequest) {
   )
 
   const supabase = createServerClient()
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let query: any = supabase
+
+  // Strip the leading `#` we display in the submitter-facing reference
+  // code (`#d979c78a`), so pasting it back into the search field works.
+  const searchTerm = search.replace(/^#/, '').trim()
+
+  // Search strategy: when the operator is searching, fetch a broad slice
+  // (status filter bypassed so a Resolved ticket found from the Open tab
+  // still surfaces), then filter client-side. PostgREST's `or()` doesn't
+  // accept the `::text` cast that ILIKE on a uuid column would require,
+  // and admin ticket volume is bounded — client-side filtering of
+  // `limit` rows is fine.
+  const fetchLimit = searchTerm ? Math.max(limit, 500) : limit
+  let baseQuery = supabase
     .from('support_tickets')
     .select('*')
     .order('created_at', { ascending: false })
-    .limit(limit)
+    .limit(fetchLimit)
 
-  // When the operator is searching for a specific ticket (typically by the
-  // reference code we showed the submitter), don't also filter by status —
-  // a Resolved ticket searched from the Open tab should still show up.
-  if (status && !search) query = query.eq('status', status)
-  if (employerScope) query = query.eq('employer_id', employerScope)
-  if (search) {
-    // ILIKE-or against subject/email/id. The id match is the reference
-    // code we surface to the submitter post-create (`#${id.slice(0,8)}`),
-    // which they paste into the search field to follow up. We cast id to
-    // text so postgres can ILIKE against the uuid prefix.
-    const safe = search.replace(/[%_]/g, '\\$&')
-    query = query.or(
-      `subject.ilike.%${safe}%,email.ilike.%${safe}%,id::text.ilike.${safe}%`,
-    )
-  }
+  if (status && !searchTerm) baseQuery = baseQuery.eq('status', status)
+  if (employerScope) baseQuery = baseQuery.eq('employer_id', employerScope)
 
-  const { data: tickets, error } = await query
+  const { data: rawTickets, error } = await baseQuery
   if (error) {
     console.error('[support-tickets] list failed', error.message)
     return NextResponse.json({ items: [] })
+  }
+
+  let tickets = rawTickets ?? []
+  if (searchTerm) {
+    const needle = searchTerm.toLowerCase()
+    tickets = tickets.filter(
+      (t) =>
+        t.subject.toLowerCase().includes(needle) ||
+        t.email.toLowerCase().includes(needle) ||
+        t.id.toLowerCase().startsWith(needle),
+    )
+    tickets = tickets.slice(0, limit)
   }
 
   // Resolve employer + employee names in one round trip each.
