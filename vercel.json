@@ -35,14 +35,6 @@
     {
       "path": "/api/cron/process-reputation-writes",
       "schedule": "15 3 * * *"
-    },
-    {
-      "path": "/api/cron/autopayroll-tick",
-      "schedule": "0 * * * *"
-    },
-    {
-      "path": "/api/cron/index-virtual-inflows",
-      "schedule": "*/30 * * * *"
     }
   ]
 }
