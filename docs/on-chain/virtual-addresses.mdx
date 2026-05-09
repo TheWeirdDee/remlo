@@ -1,0 +1,91 @@
+---
+title: "Virtual addresses (TIP-1022)"
+description: "One on-chain registration unlocks trillions of per-employee deposit addresses that route inbound TIP-20 transfers to your treasury."
+---
+
+Tempo's TIP-1022 (Address Registry, T3 upgrade) lets a single master wallet derive trillions of "virtual addresses." Inbound TIP-20 transfers to a virtual address get routed to the master, with the embedded user-tag emitted in the on-chain event log. Remlo uses this to give every employee a unique deposit address that funds the employer treasury with automatic per-employee attribution.
+
+## The address format
+
+```
+0x | masterId(4) | VIRTUAL_MAGIC(10) | userTag(6)
+```
+
+- `masterId` — 4 bytes assigned by the Address Registry on registration.
+- `VIRTUAL_MAGIC` — `0xFDFDFDFDFDFDFDFDFDFD`. Constant. The middle 10 bytes are the magic that triggers TIP-20 routing.
+- `userTag` — 6 bytes, application-defined. Remlo derives `keccak256(employerId, employeeId)[:6]`.
+
+Total: 20 bytes. Looks like a regular address; routes like a smart-contract precompile call.
+
+## Address Registry
+
+`0xFDC0000000000000000000000000000000000000` — same on every Tempo network.
+
+```solidity
+function registerVirtualMaster(bytes32 salt) external returns (bytes4 masterId);
+function getMaster(bytes4 masterId) external view returns (address);
+function resolveRecipient(address) external view returns (address);
+function isVirtualAddress(address) external pure returns (bool);
+function decodeVirtualAddress(address) external pure returns (bool isVirtual, bytes4 masterId, bytes6 userTag);
+```
+
+## Master registration (proof-of-work)
+
+Anyone can register, but the masterId must be proven via PoW: `keccak256(masterAddress || salt)` must start with 4 zero bytes. Expected ~2^32 iterations. Once accepted, the first 4 bytes after the zeros become the `masterId` and the registry stores `masterId → masterAddress`.
+
+Remlo handles the salt mining server-side in `lib/tempo/virtual-addresses.ts:findValidSalt`. We cap each request at 50M iterations and retry with a higher `startNonce` if not found.
+
+## How TIP-20 routes
+
+When a TIP-20 transfer's `to` address contains the magic bytes:
+
+1. The token contract calls `addressRegistry.resolveRecipient(to)` and looks up the master.
+2. The master's `balanceOf` is incremented (`balanceOf(virtualAddress)` is always `0`).
+3. Two `Transfer` events fire: `sender → virtualAddress`, then `virtualAddress → master`.
+4. TIP-403 policy checks evaluate against the resolved master (whitelist / blacklist of the master decides authorization, not the virtual address).
+
+Non-TIP-20 tokens (NFTs, LP positions, DEX rewards, anything that doesn't honor TIP-1022) sent to a virtual address are **unrecoverable** — there's no fallback path. The Remlo UI hard-warns about this whenever a virtual address is displayed.
+
+## Remlo's use
+
+- **Employer registration** (`/dashboard/settings/deposit-addresses`): one-click registration that mines the salt and submits `registerVirtualMaster(salt)` from the Remlo agent wallet. The result is cached on `employers.virtual_master_id` + `virtual_master_address`.
+- **Per-employee derivation**: client- or server-side via `deriveEmployeeDepositAddress({ masterId, employerId, employeeId })`. No on-chain state required.
+- **Employee surface**: `/portal` home renders a `DepositAddressCard` once the employer has registered. The card returns nothing until then so it doesn't add UI noise to brand-new employees.
+- **Indexing**: a 5-min cron at `/api/cron/index-virtual-inflows` scans the last ~5,000 blocks for `Transfer` events filtered by `to=master_address` on each known TIP-20, decodes the `from` field (which contains the userTag), and writes rows to `virtual_address_inflows`. The unique constraint on `(tx_hash, log_index)` makes the indexer idempotent — re-scanning overlapping windows is free.
+- **Activity surface**: the employee's `/portal/activity` page reads `virtual_address_inflows` and renders a `virtual_inflow` activity card with sender + amount.
+
+## API
+
+### `GET /api/employers/[id]/virtual-master`
+
+Returns cached registration status. Public to the employer owner.
+
+### `POST /api/employers/[id]/virtual-master`
+
+Mines a salt, broadcasts `registerVirtualMaster`, caches the result. Returns 409 if already registered. May return 504 with a `nextStartNonce` if the iteration budget is exhausted — client retries with that nonce.
+
+### `GET /api/portal/deposit-address`
+
+Authenticated employee endpoint. Returns the derived address + a hard warning about TIP-20-only routing. Returns `available: false` cleanly when the employer hasn't registered yet.
+
+## Schema
+
+See `db/migrations/20260509f_virtual_addresses.sql`:
+
+- `employers.virtual_master_id` — 4-byte hex (`0x` + 8 chars)
+- `employers.virtual_master_address` — the master EOA (Remlo's agent wallet for now; per-employer wallets in a future model)
+- `employers.virtual_master_salt` — the salt that was mined
+- `employers.virtual_master_tx_hash` — registration tx
+- `virtual_address_inflows` — indexer output, keyed by `(tx_hash, log_index)` for idempotency
+
+## Limitations
+
+1. **TIP-20 only.** As stated above, non-TIP-20 transfers are unrecoverable. Surface this prominently.
+2. **6-byte userTag** = 281 trillion per master. More than enough for any roster, but technically there's a vanishingly small collision probability when a master serves multiple unrelated namespaces.
+3. **Master = Remlo agent wallet today.** The master is the address that ultimately receives funds. Today that's Remlo's agent wallet (custodial yet attributable). A future revision lets each employer register their own wallet as the master so funds flow direct to their treasury.
+4. **Indexer scans a fixed token set.** Currently `[pathUSD, AlphaUSD, BetaUSD, ThetaUSD]`. Mainnet expansion will pull from `tokenlist.tempo.xyz/list/<chainId>` via `lib/tempo/tokenlist.ts`.
+
+## See also
+
+- TIP-1022 spec at `docs.tempo.xyz/protocol/tips/tip-1022`
+- [`lib/tempo/virtual-addresses.ts`](https://github.com/.../lib/tempo/virtual-addresses.ts) for the derivation helpers

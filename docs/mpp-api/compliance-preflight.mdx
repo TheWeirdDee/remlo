@@ -1,0 +1,112 @@
+---
+title: "Compliance pre-flight"
+description: "Read TIP-403 transfer policies before payroll runs so the dashboard warns about blocked recipients up front."
+---
+
+Compliance pre-flight reads a token's TIP-403 transfer policy and returns whether each given address would pass on transfer. It's a pure read — no funds move, no chain writes — designed to surface compliance issues in the UI before an operator commits a payroll run.
+
+## Why pre-flight
+
+Every TIP-20 transfer on Tempo runs through the token issuer's TIP-403 policy. If a recipient isn't on the whitelist (or is on the blacklist), the on-chain `transfer` reverts. Without pre-flight, an employer's run reverts mid-batch with no friendly explanation. With pre-flight, the wizard says "3 of 50 employees will fail compliance" before anyone clicks Execute.
+
+## TIP-403 background
+
+- Every TIP-20 stores a `transferPolicyId` (uint64).
+- The TIP-403 registry (`0x403c000000000000000000000000000000000000`) maintains policies. Each policy is either a whitelist, a blacklist, or — since T2 / TIP-1015 — a compound policy that bundles distinct sender / recipient / mint-recipient sub-policies.
+- Reserved IDs: `0` always-reject, `1` always-allow.
+- The legacy single-leg call: `isAuthorized(policyId, address) → bool`.
+- Post-T2 granular calls: `isAuthorizedSender`, `isAuthorizedRecipient`, `isAuthorizedMintRecipient`.
+
+A transfer succeeds iff `isAuthorizedSender(from) && isAuthorizedRecipient(to)`. Pre-flight returns all three booleans plus the legacy form so the UI can show exactly which leg fails for a given address.
+
+## API
+
+### `GET /api/employers/[id]/compliance/preflight`
+
+Single-address pre-flight.
+
+```
+GET /api/employers/abc-123/compliance/preflight?address=0xRecipient&token=0xToken
+Authorization: Bearer <privy>
+```
+
+`token` is optional — defaults to pathUSD.
+
+Response:
+
+```jsonc
+{
+  "network": "testnet",
+  "result": {
+    "checkedAt": "2026-05-09T12:00:00Z",
+    "address": "0xRecipient",
+    "token": { "address": "0x...", "symbol": "pathUSD" },
+    "policy": { "id": "42", "exists": true, "type": "simple_whitelist", "admin": "0x..." },
+    "authorization": {
+      "legacy": true,
+      "sender": true,
+      "recipient": true,
+      "mintRecipient": false
+    },
+    "ok": true
+  }
+}
+```
+
+`ok` is the convenience boolean: `sender && recipient`. Mint-recipient is informational unless the operation is a mint (rare for payroll).
+
+### `POST /api/employers/[id]/compliance/preflight`
+
+Batch pre-flight. Two input modes:
+
+```jsonc
+// Mode A: explicit addresses
+{ "addresses": ["0x...", "0x..."], "token": "0x20c0..." }
+
+// Mode B: resolve from the employer's roster
+{ "employeeIds": ["uuid-1", "uuid-2"], "token": "0x20c0..." }
+```
+
+Mode B reads `wallet_address` from `employees` for the given IDs (scoped to the caller's employer). Useful when the dashboard already has employee IDs in scope and wants to avoid leaking wallet addresses through the request body.
+
+Cap: 200 addresses per call.
+
+Response:
+
+```jsonc
+{
+  "network": "testnet",
+  "results": [ /* per-address PreflightResult */ ],
+  "summary": { "total": 50, "ok": 47, "blocked": 3 }
+}
+```
+
+## Reserved policies short-circuit
+
+For policy IDs `0` and `1`, the helper returns immediately without reading the chain — saves four reads per address when the issuer hasn't configured a policy.
+
+## Performance
+
+Per-address: 6 sequential reads (transfer policy ID, symbol, policy exists, policy data, legacy isAuthorized, three sender/recipient/mint-recipient calls). Batch reads fan out concurrently — a 50-employee pre-flight is one round-trip of fanout, not 50 sequential calls.
+
+For batch sizes > 200, paginate client-side. Each request is independent.
+
+## UI integration
+
+The Run-Payroll wizard's review step renders a `<CompliancePreflightPanel>`:
+
+- **Loading** — small spinner while reads complete (~500ms typical).
+- **All clear** — green pill with the policy ID + type ("policy 42 · simple_whitelist").
+- **Some blocked** — red panel listing up to 8 blocked addresses with the failing leg ("sender ✗" / "recipient ✗"), plus a recommendation to resolve before running.
+- **Read failed** — neutral note. The on-chain transfer enforces compliance natively, so a soft pre-flight failure doesn't block the run.
+
+## When NOT to use it
+
+Pre-flight is read-only and informational. It's not a substitute for the on-chain check — the chain enforces policies regardless of what the UI shows. If the chain reverts on a recipient that pre-flight cleared, that means the policy changed between pre-flight and broadcast (or there's a clock skew on the indexer). The chain is authoritative.
+
+Solana payroll skips pre-flight: TIP-403 is Tempo-specific. The `<CompliancePreflightPanel>` returns null when `chain !== 'tempo'`.
+
+## See also
+
+- [TIP-403 background and policy types](/docs/protocol/) (TODO if not yet written)
+- [`lib/tempo/compliance.ts`](https://github.com/.../lib/tempo/compliance.ts) for the read helpers

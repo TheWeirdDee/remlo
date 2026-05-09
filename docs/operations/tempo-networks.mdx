@@ -1,0 +1,89 @@
+---
+title: "Tempo network switching"
+description: "How TEMPO_NETWORK selects mainnet, testnet, or devnet — and what changes vs stays constant per network."
+---
+
+Remlo runs against one Tempo network per environment, selected by the `TEMPO_NETWORK` env var. Default is `testnet` (Moderato). Switching is intentional and explicit — never an implicit derivation from `NODE_ENV` — so a misconfigured deploy can't accidentally route real-funds traffic to mainnet.
+
+## The env var
+
+```sh
+TEMPO_NETWORK=testnet     # default; Moderato
+TEMPO_NETWORK=mainnet     # Presto
+TEMPO_NETWORK=devnet      # rare; mostly for contract verification
+```
+
+Set in Vercel (or your hosting env) per environment. A value Remlo doesn't recognize falls back to `testnet` with a server-log warning.
+
+## What changes per network
+
+The single source of truth is `lib/tempo/network.ts`. Code paths that need network-specific values import `getTempoNetwork()` (typed config) or `getTempoChain()` (viem `Chain`). Per-network values:
+
+| Property | Mainnet | Testnet (Moderato) | Devnet |
+|---|---|---|---|
+| Chain ID | `4217` | `42431` | `31318` |
+| RPC URL | `https://rpc.tempo.xyz` | `https://rpc.moderato.tempo.xyz` | `https://rpc.devnet.tempo.xyz` |
+| WebSocket | `wss://rpc.tempo.xyz` | `wss://rpc.moderato.tempo.xyz` | — |
+| Explorer | `https://explore.tempo.xyz` | `https://explore.testnet.tempo.xyz` | `https://explore.devnet.tempo.xyz` |
+| Sponsor URL | (not yet) | `https://sponsor.moderato.tempo.xyz` | — |
+| Token list | `tokenlist.tempo.xyz/list/4217` | `tokenlist.tempo.xyz/list/42431` | `tokenlist.tempo.xyz/list/31318` |
+| Currency symbol | USD | USD | USD |
+| Faucet | n/a | `wallet.tempo.xyz` | (varies) |
+
+## What stays constant on every network
+
+The "predeployed system contracts" Tempo bakes into genesis. Live in `lib/tempo/system-contracts.ts` and never change between networks:
+
+| Contract | Address |
+|---|---|
+| TIP-20 Factory | `0x20Fc000000000000000000000000000000000000` |
+| Fee Manager | `0xfeec000000000000000000000000000000000000` |
+| Stablecoin DEX | `0xdec0000000000000000000000000000000000000` |
+| TIP-403 Policy Registry | `0x403c000000000000000000000000000000000000` |
+| Signature Verifier (TIP-1020) | `0x5165300000000000000000000000000000000000` |
+| Address Registry (TIP-1022) | `0xFDC0000000000000000000000000000000000000` |
+| Account Keychain (TIP-1011) | `0xAAAAAAAA00000000000000000000000000000000` |
+| Nonce precompile | `0x4E4F4E4345000000000000000000000000000000` |
+| pathUSD | `0x20c0000000000000000000000000000000000000` |
+| ERC-8004 Identity Registry | `0x8004A169FB4a3325136EB29fA0ceB6D2e539a432` |
+| ERC-8004 Reputation Registry | `0x8004BAa17C55a88189AE136b182e5fdA19dE9b63` |
+
+What this means in practice: code that reads or writes against system contracts (TIP-403 policies, virtual addresses, AccountKeychain, etc.) is automatically network-correct. Only the network choice (which RPC + chain ID) needs to swap.
+
+## What's deployment-specific
+
+Remlo's own contracts (PayrollBatcher, PayrollTreasury, EmployeeRegistry, StreamVesting, YieldRouter) are NOT enshrined — they're our deployments. Their addresses must be set per-network via env:
+
+```sh
+NEXT_PUBLIC_PAYROLL_TREASURY=0x...
+NEXT_PUBLIC_PAYROLL_BATCHER=0x...
+NEXT_PUBLIC_EMPLOYEE_REGISTRY=0x...
+NEXT_PUBLIC_STREAM_VESTING=0x...
+NEXT_PUBLIC_YIELD_ROUTER=0x...
+```
+
+Defaults in `lib/constants.ts` are the testnet (Moderato) deployments from 2026-03-25. Production / mainnet must override via env.
+
+## Helpers
+
+- `getTempoNetwork()` — returns the typed config for the active network.
+- `getTempoChain()` — returns a viem `Chain` ready for `createPublicClient` / `createWalletClient`.
+- `tempoExplorerUrl('tx' | 'address' | 'block', value)` — composes explorer URLs without per-component string-concatenation.
+- `assertNotMainnet(reason)` — hard-throws on mainnet. Use this to gate code paths that must be testnet-only (faucet flows, sandbox emulation).
+
+## Mainnet readiness checklist
+
+Before flipping `TEMPO_NETWORK=mainnet`:
+
+- [ ] All `NEXT_PUBLIC_PAYROLL_*` envs point to mainnet deployments.
+- [ ] Verified contracts visible at `https://explore.tempo.xyz/address/<ADDR>` (use `contracts.tempo.xyz` Sourcify endpoint).
+- [ ] Token allowlist coordinated with the issuer (PayrollBatcher must be on the relevant TIP-403 policy whitelist).
+- [ ] RPC partner (Alchemy / QuickNode / etc.) is on the latest T-upgrade.
+- [ ] `TEMPO_RPC_URL_FALLBACK` set to a second RPC for failover.
+- [ ] Auto-Payroll: regenerate `AUTOPAYROLL_ENCRYPTION_KEY` for production; do NOT reuse the testnet key.
+
+## See also
+
+- `lib/tempo/network.ts` — the implementation.
+- [Server-side secrets](/docs/operations/secrets) — the full env-var inventory.
+- [Tempo's network operations doc](https://docs.tempo.xyz/quickstart/connection-details) — upstream truth.

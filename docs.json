@@ -53,7 +53,8 @@
               "docs/on-chain/payroll-batcher",
               "docs/on-chain/employee-registry",
               "docs/on-chain/stream-vesting",
-              "docs/on-chain/yield-router"
+              "docs/on-chain/yield-router",
+              "docs/on-chain/virtual-addresses"
             ]
           },
           {
@@ -68,6 +69,7 @@
               "docs/mpp-api/yield-rates",
               "docs/mpp-api/payroll-execution",
               "docs/mpp-api/compliance-check",
+              "docs/mpp-api/compliance-preflight",
               "docs/mpp-api/salary-advance",
               "docs/mpp-api/salary-stream",
               "docs/mpp-api/payment-history",
@@ -85,6 +87,7 @@
             "pages": [
               "docs/integrations/bridge",
               "docs/integrations/privy",
+              "docs/integrations/autopayroll",
               "docs/integrations/agentcash",
               "docs/integrations/sponge",
               "docs/integrations/atxp",
@@ -96,8 +99,10 @@
             "group": "Operations",
             "pages": [
               "docs/operations/environment-variables",
+              "docs/operations/secrets",
               "docs/operations/deployment",
               "docs/operations/contract-deployment",
+              "docs/operations/tempo-networks",
               "docs/operations/announcements"
             ]
           }
