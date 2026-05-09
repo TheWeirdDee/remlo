@@ -1,7 +1,6 @@
 import { createPublicClient, createWalletClient, http, getContract } from 'viem'
 import { privateKeyToAccount } from 'viem/accounts'
 import {
-  TEMPO_RPC_URL,
   PATHUSD_ADDRESS,
   TIP403_REGISTRY,
   PAYROLL_TREASURY_ADDRESS,
@@ -10,6 +9,7 @@ import {
   STREAM_VESTING_ADDRESS,
   YIELD_ROUTER_ADDRESS,
 } from '@/lib/constants'
+import { getTempoChain, getTempoNetwork } from '@/lib/tempo/network'
 import { PayrollTreasuryABI } from '@/lib/abis/PayrollTreasury'
 import { PayrollBatcherABI } from '@/lib/abis/PayrollBatcher'
 import { EmployeeRegistryABI } from '@/lib/abis/EmployeeRegistry'
@@ -27,16 +27,13 @@ const Tip20BalanceAbi = [
   },
 ] as const
 
-export const tempoTransport = http(TEMPO_RPC_URL)
+const tempoChain = getTempoChain()
+
+export const tempoTransport = http(getTempoNetwork().rpcUrl)
 
 export const publicClient = createPublicClient({
   transport: tempoTransport,
-  chain: {
-    id: 42431,
-    name: 'Tempo Moderato',
-    nativeCurrency: { name: 'USD', symbol: 'USD', decimals: 6 },
-    rpcUrls: { default: { http: [TEMPO_RPC_URL] } },
-  },
+  chain: tempoChain,
 })
 
 /**

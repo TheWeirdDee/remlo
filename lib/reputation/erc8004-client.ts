@@ -10,7 +10,8 @@
  */
 import { createPublicClient, createWalletClient, fallback, http, type Address, type Hex } from 'viem'
 import { privateKeyToAccount } from 'viem/accounts'
-import { TEMPO_RPC_URL } from '@/lib/constants'
+import { getTempoChain, getTempoNetwork } from '@/lib/tempo/network'
+import { TEMPO_SYSTEM_CONTRACTS } from '@/lib/tempo/system-contracts'
 
 // ─── ABI fragments ───────────────────────────────────────────────────────────
 
@@ -147,21 +148,15 @@ export const ValidationRegistryAbi = [
 
 // ─── Chain + clients ─────────────────────────────────────────────────────────
 
-const TEMPO_MODERATO_CHAIN = {
-  id: 42431,
-  name: 'Tempo Moderato',
-  nativeCurrency: { name: 'USD', symbol: 'USD', decimals: 6 },
-  rpcUrls: { default: { http: [TEMPO_RPC_URL] } },
-} as const
-
 // Ship 7 Part 5A — rotate to a fallback RPC on 429/5xx so a traffic spike on
 // the public `/agents` page doesn't kill request-path features. Set
-// TEMPO_RPC_URL_FALLBACK to a second RPC endpoint (e.g. a paid Helius-style
-// provider) and viem's `fallback` transport will rotate automatically.
+// TEMPO_RPC_URL_FALLBACK to a second RPC endpoint and viem's `fallback`
+// transport rotates automatically.
 function buildTempoTransport() {
+  const primary = getTempoNetwork().rpcUrl
   const fallbackUrl = process.env.TEMPO_RPC_URL_FALLBACK
-  if (!fallbackUrl) return http(TEMPO_RPC_URL)
-  return fallback([http(TEMPO_RPC_URL), http(fallbackUrl)], {
+  if (!fallbackUrl) return http(primary)
+  return fallback([http(primary), http(fallbackUrl)], {
     rank: false,
     retryCount: 1,
   })
@@ -169,34 +164,42 @@ function buildTempoTransport() {
 const tempoTransport = buildTempoTransport()
 
 export function getTempoPublicClient() {
-  return createPublicClient({ transport: tempoTransport, chain: TEMPO_MODERATO_CHAIN })
+  return createPublicClient({ transport: tempoTransport, chain: getTempoChain() })
 }
 
 export function getTempoWalletClient(privateKey: Hex) {
   return createWalletClient({
     account: privateKeyToAccount(privateKey),
     transport: tempoTransport,
-    chain: TEMPO_MODERATO_CHAIN,
+    chain: getTempoChain(),
   })
 }
 
 // ─── Address accessors ──────────────────────────────────────────────────────
+//
+// Defaults are the enshrined Tempo system contracts — same address on every
+// network per docs.tempo.xyz/quickstart/predeployed-contracts. Env overrides
+// remain so a developer can point at a private fork. Validation Registry is
+// not enshrined (no canonical address published); env-only with a clear error.
 
 export function getIdentityRegistryAddress(): Address {
-  const addr = process.env.NEXT_PUBLIC_ERC8004_IDENTITY_REGISTRY
-  if (!addr) throw new Error('NEXT_PUBLIC_ERC8004_IDENTITY_REGISTRY not set')
-  return addr as Address
+  return (process.env.NEXT_PUBLIC_ERC8004_IDENTITY_REGISTRY ??
+    TEMPO_SYSTEM_CONTRACTS.erc8004Identity) as Address
 }
 
 export function getReputationRegistryAddress(): Address {
-  const addr = process.env.NEXT_PUBLIC_ERC8004_REPUTATION_REGISTRY
-  if (!addr) throw new Error('NEXT_PUBLIC_ERC8004_REPUTATION_REGISTRY not set')
-  return addr as Address
+  return (process.env.NEXT_PUBLIC_ERC8004_REPUTATION_REGISTRY ??
+    TEMPO_SYSTEM_CONTRACTS.erc8004Reputation) as Address
 }
 
 export function getValidationRegistryAddress(): Address {
   const addr = process.env.NEXT_PUBLIC_ERC8004_VALIDATION_REGISTRY
-  if (!addr) throw new Error('NEXT_PUBLIC_ERC8004_VALIDATION_REGISTRY not set')
+  if (!addr) {
+    throw new Error(
+      'NEXT_PUBLIC_ERC8004_VALIDATION_REGISTRY not set. ' +
+        'Tempo has not enshrined a validation registry; set the deployed address explicitly.',
+    )
+  }
   return addr as Address
 }
 

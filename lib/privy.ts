@@ -1,17 +1,7 @@
-import { defineChain } from 'viem'
 import type { PrivyClientConfig } from '@privy-io/react-auth'
+import { getTempoChain } from '@/lib/tempo/network'
 
-export const tempoChain = defineChain({
-  id: 42431,
-  name: 'Tempo Moderato',
-  nativeCurrency: { name: 'USD', symbol: 'USD', decimals: 6 },
-  rpcUrls: {
-    default: { http: ['https://rpc.moderato.tempo.xyz'] },
-  },
-  blockExplorers: {
-    default: { name: 'Tempo Explorer', url: 'https://explore.moderato.tempo.xyz' },
-  },
-})
+export const tempoChain = getTempoChain()
 
 export const privyConfig: PrivyClientConfig = {
   defaultChain: tempoChain,
