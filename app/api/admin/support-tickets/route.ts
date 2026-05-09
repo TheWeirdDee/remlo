@@ -39,13 +39,20 @@ export async function GET(req: NextRequest) {
     .order('created_at', { ascending: false })
     .limit(limit)
 
-  if (status) query = query.eq('status', status)
+  // When the operator is searching for a specific ticket (typically by the
+  // reference code we showed the submitter), don't also filter by status —
+  // a Resolved ticket searched from the Open tab should still show up.
+  if (status && !search) query = query.eq('status', status)
   if (employerScope) query = query.eq('employer_id', employerScope)
   if (search) {
-    // ILIKE-or against subject/email gets us "search the obvious fields"
-    // without a real full-text index. Cheap, predictable, fine for an
-    // admin inbox.
-    query = query.or(`subject.ilike.%${search}%,email.ilike.%${search}%`)
+    // ILIKE-or against subject/email/id. The id match is the reference
+    // code we surface to the submitter post-create (`#${id.slice(0,8)}`),
+    // which they paste into the search field to follow up. We cast id to
+    // text so postgres can ILIKE against the uuid prefix.
+    const safe = search.replace(/[%_]/g, '\\$&')
+    query = query.or(
+      `subject.ilike.%${safe}%,email.ilike.%${safe}%,id::text.ilike.${safe}%`,
+    )
   }
 
   const { data: tickets, error } = await query
