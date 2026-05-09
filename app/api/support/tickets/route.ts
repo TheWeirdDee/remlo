@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getPrivyClaims } from '@/lib/auth'
 import { createServerClient } from '@/lib/supabase-server'
+import { sendEmail } from '@/lib/email/client'
 import type { Json } from '@/lib/database.types'
+
+const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? 'https://www.remlo.xyz'
 
 /**
  * POST /api/support/tickets
@@ -113,6 +116,27 @@ export async function POST(req: NextRequest) {
       { status: 500 },
     )
   }
+
+  // Fire-and-forget confirmation email. The reference code is the first
+  // 8 chars of the ticket id — same prefix shown on screen and used in
+  // the admin search. Subject is `Re: <subject> [Ticket #<code>]` so it
+  // threads with future replies in Gmail/Outlook.
+  const refCode = data.id.slice(0, 8)
+  void sendEmail({
+    to: email,
+    template: 'support_ticket_received',
+    props: {
+      refCode,
+      subject,
+      statusUrl: `${APP_URL}/support/status?code=${refCode}`,
+      appUrl: APP_URL,
+    },
+    idempotencyKey: `support_received:${data.id}`,
+    tags: [
+      { name: 'flow', value: 'support' },
+      { name: 'event', value: 'received' },
+    ],
+  })
 
   return NextResponse.json({ ticket: data, ok: true }, { status: 201 })
 }

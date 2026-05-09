@@ -2,6 +2,16 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getCallerAdmin } from '@/lib/auth'
 import { recordAdminAction, inspectRequest } from '@/lib/admin-audit'
 import { createServerClient } from '@/lib/supabase-server'
+import { sendEmail } from '@/lib/email/client'
+
+const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? 'https://www.remlo.xyz'
+
+const STATUS_LABEL: Record<string, string> = {
+  open: 'Open',
+  in_progress: 'In progress',
+  resolved: 'Resolved',
+  closed: 'Closed',
+}
 
 /**
  * PATCH /api/admin/support-tickets/[id]
@@ -67,7 +77,16 @@ export async function PATCH(req: NextRequest, ctx: RouteContext) {
   }
 
   const supabase = createServerClient()
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
+  // Read the prior state so we can decide whether to fire the customer
+  // notification email — we only email on status change or new resolution
+  // note, not on a quiet `assigned_to` claim.
+  const { data: prior } = await supabase
+    .from('support_tickets')
+    .select('status, resolution_note')
+    .eq('id', id)
+    .maybeSingle()
+
   const { data, error } = await supabase
     .from('support_tickets')
     .update(patch)
@@ -101,6 +120,37 @@ export async function PATCH(req: NextRequest, ctx: RouteContext) {
     userAgent: meta.userAgent,
     metadata: patch,
   })
+
+  // Notify the customer when the admin moved status forward or wrote a new
+  // resolution note. Skip silent claims (assigned_to-only) and no-op
+  // patches that don't change visible state.
+  const statusChanged =
+    typeof patch.status === 'string' && patch.status !== prior?.status
+  const noteChanged =
+    'resolution_note' in patch &&
+    (patch.resolution_note ?? null) !== (prior?.resolution_note ?? null) &&
+    (patch.resolution_note ?? null) !== null
+  if (statusChanged || noteChanged) {
+    const refCode = data.id.slice(0, 8)
+    void sendEmail({
+      to: data.email,
+      template: 'support_ticket_update',
+      props: {
+        refCode,
+        subject: data.subject,
+        statusLabel: STATUS_LABEL[data.status] ?? data.status,
+        resolutionNote: data.resolution_note ?? null,
+        statusUrl: `${APP_URL}/support/status?code=${refCode}`,
+        appUrl: APP_URL,
+      },
+      idempotencyKey: `support_update:${data.id}:${data.updated_at}`,
+      tags: [
+        { name: 'flow', value: 'support' },
+        { name: 'event', value: 'update' },
+        { name: 'status', value: data.status },
+      ],
+    })
+  }
 
   return NextResponse.json({ ticket: data })
 }

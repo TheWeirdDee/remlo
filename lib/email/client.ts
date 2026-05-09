@@ -13,6 +13,8 @@ import KycRejectedEmail from '@/emails/KycRejected'
 import WaitlistConfirmEmail from '@/emails/WaitlistConfirm'
 import PaymentReceivedEmail from '@/emails/PaymentReceived'
 import EmployerMessageEmail from '@/emails/EmployerMessage'
+import SupportTicketReceivedEmail from '@/emails/SupportTicketReceived'
+import SupportTicketUpdateEmail from '@/emails/SupportTicketUpdate'
 
 const FROM_DEFAULT = 'Remlo <hello@remlo.xyz>'
 const REPLY_TO_DEFAULT = 'hello@remlo.xyz'
@@ -28,6 +30,8 @@ type TemplateMap = {
   waitlist_confirm: React.ComponentProps<typeof WaitlistConfirmEmail>
   payment_received: React.ComponentProps<typeof PaymentReceivedEmail>
   employer_message: React.ComponentProps<typeof EmployerMessageEmail>
+  support_ticket_received: React.ComponentProps<typeof SupportTicketReceivedEmail>
+  support_ticket_update: React.ComponentProps<typeof SupportTicketUpdateEmail>
 }
 
 export type EmailTemplate = keyof TemplateMap
@@ -45,6 +49,8 @@ const TEMPLATE_COMPONENTS: {
   waitlist_confirm: WaitlistConfirmEmail,
   payment_received: PaymentReceivedEmail,
   employer_message: EmployerMessageEmail,
+  support_ticket_received: SupportTicketReceivedEmail,
+  support_ticket_update: SupportTicketUpdateEmail,
 }
 
 const SUBJECTS: { [K in EmailTemplate]: (props: TemplateMap[K]) => string } = {
@@ -60,6 +66,12 @@ const SUBJECTS: { [K in EmailTemplate]: (props: TemplateMap[K]) => string } = {
   payment_received: ({ companyName, amountUsd }) =>
     `You received ${new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(amountUsd)} from ${companyName}`,
   employer_message: ({ companyName, title }) => `${companyName}: ${title}`,
+  // Reference code is in the subject so it threads in Gmail/Outlook/Apple
+  // Mail and the recipient can search their inbox by `#code` later.
+  support_ticket_received: ({ subject, refCode }) =>
+    `Re: ${subject} [Ticket #${refCode}]`,
+  support_ticket_update: ({ subject, refCode }) =>
+    `Re: ${subject} [Ticket #${refCode}]`,
 }
 
 export interface SendEmailInput<K extends EmailTemplate = EmailTemplate> {

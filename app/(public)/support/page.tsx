@@ -93,16 +93,16 @@ export default function SupportPage() {
                 Ticket received
               </h1>
               <p className="mt-1 text-sm text-[var(--text-secondary)]">
-                We logged your ticket. We reply within 1 business day to{' '}
-                <span className="font-medium text-[var(--text-primary)]">{email}</span>. Keep
-                this reference if you want to follow up:
+                We logged your ticket and sent a confirmation email to{' '}
+                <span className="font-medium text-[var(--text-primary)]">{email}</span>. Reply
+                to that thread anytime — we&rsquo;ll see it. Your reference:
               </p>
               <p className="mt-3 font-mono text-xs text-[var(--text-muted)]">
                 #{success.id.slice(0, 8)}
               </p>
             </div>
           </div>
-          <div className="mt-5 flex items-center gap-3">
+          <div className="mt-5 flex items-center gap-3 flex-wrap">
             <button
               onClick={() => {
                 setSuccess(null)
@@ -112,6 +112,14 @@ export default function SupportPage() {
               className="h-9 px-3 rounded-lg border border-[var(--border-default)] bg-[var(--bg-base)] text-xs font-medium text-[var(--text-primary)] hover:bg-[var(--bg-subtle)]"
             >
               File another
+            </button>
+            <button
+              onClick={() =>
+                router.push(`/support/status?code=${success.id.slice(0, 8)}&email=${encodeURIComponent(email)}`)
+              }
+              className="h-9 px-3 rounded-lg border border-[var(--border-default)] bg-[var(--bg-base)] text-xs font-medium text-[var(--text-primary)] hover:bg-[var(--bg-subtle)]"
+            >
+              Check status
             </button>
             <button
               onClick={() => router.push(authenticated ? '/dashboard' : '/')}
