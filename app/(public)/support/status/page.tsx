@@ -17,6 +17,10 @@ import { ArrowLeft, CheckCircle2, Clock, Loader2, MessageSquare, XCircle } from 
  * logging in. Most enterprise support tools (Zendesk, Help Scout, Front)
  * have an equivalent status page; the bar for a fast pitch demo is to
  * have one too.
+ *
+ * Next.js 15 requires `useSearchParams` consumers to be wrapped in a
+ * Suspense boundary so prerender doesn't bail. Outer page renders the
+ * suspense + the static shell; inner client component reads the params.
  */
 
 interface StatusResponse {
@@ -40,6 +44,27 @@ const STATUS_META: Record<
 }
 
 export default function SupportStatusPage() {
+  return (
+    <React.Suspense fallback={<StatusPageSkeleton />}>
+      <SupportStatusForm />
+    </React.Suspense>
+  )
+}
+
+function StatusPageSkeleton() {
+  return (
+    <main className="min-h-screen bg-[var(--bg-base)] px-6 py-12 sm:py-16">
+      <div className="mx-auto max-w-xl">
+        <div className="h-3 w-24 animate-pulse rounded bg-[var(--bg-subtle)]" />
+        <div className="mt-8 h-8 w-2/3 animate-pulse rounded bg-[var(--bg-subtle)]" />
+        <div className="mt-3 h-4 w-full animate-pulse rounded bg-[var(--bg-subtle)]" />
+        <div className="mt-6 h-48 animate-pulse rounded-2xl bg-[var(--bg-subtle)]" />
+      </div>
+    </main>
+  )
+}
+
+function SupportStatusForm() {
   const searchParams = useSearchParams()
   const initialCode = (searchParams.get('code') ?? '').replace(/^#/, '')
   const initialEmail = searchParams.get('email') ?? ''
