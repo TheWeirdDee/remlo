@@ -105,7 +105,7 @@ export default function ActivityPage(): React.ReactElement {
         </div>
       </header>
 
-      <section className="rounded-2xl border border-[var(--border-default)] bg-[var(--bg-surface)]">
+      <section className="overflow-hidden rounded-2xl border border-[var(--border-default)] bg-[var(--bg-surface)]">
         {query.isLoading ? (
           <div className="flex items-center justify-center gap-2 px-5 py-12 text-xs text-[var(--text-muted)]">
             <Loader2 className="h-3 w-3 animate-spin" />
