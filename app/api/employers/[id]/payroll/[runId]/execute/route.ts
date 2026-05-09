@@ -5,7 +5,8 @@ import { payrollBatcher, getServerWalletClient } from '@/lib/contracts'
 import { getEmployerOnchainIdentity, getEmployerOnchainIdentityError } from '@/lib/employer-onchain'
 import { byteaMemoToHex } from '@/lib/memo'
 import { createNotification } from '@/lib/notifications'
-import { sendEmail, sendEmailBatch } from '@/lib/email/client'
+import { sendEmail } from '@/lib/email/client'
+import { notify, type EmailPart } from '@/lib/notify'
 import { getEmployerRecipient } from '@/lib/email/recipients'
 import { decodeMemo } from '@/lib/memo'
 import { TEMPO_EXPLORER_URL } from '@/lib/constants'
@@ -61,7 +62,7 @@ export async function POST(req: NextRequest, ctx: RouteContext) {
   const employeeIds = items.map((i) => i.employee_id)
   const { data: employees } = await supabase
     .from('employees')
-    .select('id, wallet_address, email, first_name')
+    .select('id, wallet_address, email, first_name, user_id')
     .in('id', employeeIds)
 
   const walletMap = new Map<string, string>(
@@ -71,13 +72,17 @@ export async function POST(req: NextRequest, ctx: RouteContext) {
   )
   const employeeProfileMap = new Map<
     string,
-    { email: string; firstName: string | null }
+    { email: string; firstName: string | null; userId: string | null }
   >(
     (employees ?? [])
       .filter((e) => e.email)
       .map((e) => [
         e.id,
-        { email: e.email as string, firstName: (e.first_name as string | null) ?? null },
+        {
+          email: e.email as string,
+          firstName: (e.first_name as string | null) ?? null,
+          userId: (e.user_id as string | null) ?? null,
+        },
       ]),
   )
 
@@ -134,6 +139,24 @@ export async function POST(req: NextRequest, ctx: RouteContext) {
       metadata: { recipient_count: recipients.length, error: detail.slice(0, 500) },
     })
 
+    void (async () => {
+      const recipient = await getEmployerRecipient(employerId)
+      if (!recipient) return
+      const appUrl = (process.env.NEXT_PUBLIC_APP_URL ?? 'https://remlo.xyz').replace(/\/$/, '')
+      await sendEmail({
+        to: recipient.email,
+        template: 'payroll_failed',
+        idempotencyKey: `payroll-failed-${runId}`,
+        employerId,
+        props: {
+          companyName: recipient.companyName,
+          reason: detail.slice(0, 500),
+          runUrl: `${appUrl}/dashboard/payroll/${runId}`,
+          recipientCount: recipients.length,
+        },
+      })
+    })()
+
     return NextResponse.json(
       { error: `On-chain payroll broadcast failed: ${detail.slice(0, 500)}` },
       { status: 502 },
@@ -189,7 +212,7 @@ export async function POST(req: NextRequest, ctx: RouteContext) {
     const settledAt = new Date().toISOString()
     const employerEmployer = await getEmployerRecipient(employerId)
     const companyName = employerEmployer?.companyName ?? 'your employer'
-    const employeeReceipts = items
+    const employeeReceipts: EmailPart[] = items
       .map((item) => {
         const profile = employeeProfileMap.get(item.employee_id)
         if (!profile) return null
@@ -199,14 +222,10 @@ export async function POST(req: NextRequest, ctx: RouteContext) {
           memoFields && typeof memoFields === 'object' && 'payPeriod' in memoFields
             ? String((memoFields as { payPeriod: unknown }).payPeriod ?? '')
             : null
-        return {
+        const part: EmailPart = {
           to: profile.email,
           template: 'payment_received' as const,
           idempotencyKey: `payment-received:${runId}:${item.employee_id}`,
-          tags: [
-            { name: 'flow', value: 'payment_received' },
-            { name: 'run_id', value: runId },
-          ],
           employerId,
           props: {
             firstName: profile.firstName,
@@ -221,17 +240,21 @@ export async function POST(req: NextRequest, ctx: RouteContext) {
             costCenter: null,
           },
         }
+        if (profile.userId) {
+          part.preferenceCheck = { userId: profile.userId, key: 'payrollEmail' }
+        }
+        return part
       })
-      .filter((x): x is NonNullable<typeof x> => x !== null)
+      .filter((x): x is EmailPart => x !== null)
 
     if (employeeReceipts.length > 0) {
-      const result = await sendEmailBatch(employeeReceipts)
+      const result = await notify({ emails: employeeReceipts })
       console.info('[payroll-execute] employee receipts sent', {
         runId,
-        attempted: result.attempted,
-        sent: result.sent,
-        skipped: result.skipped,
-        failed: result.failed,
+        attempted: result.emailAttempted,
+        sent: result.emailSent,
+        skipped: result.emailSkipped,
+        failed: result.emailFailed,
       })
     }
   })()

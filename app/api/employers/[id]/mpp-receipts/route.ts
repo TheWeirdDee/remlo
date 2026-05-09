@@ -87,6 +87,7 @@ export async function GET(req: NextRequest, ctx: RouteContext) {
   }
 
   for (const session of sessions ?? []) {
+    if (!session.opened_at) continue
     items.push({
       id: `session-${session.id}`,
       amount: Number(session.total_spent ?? 0).toFixed(2),
