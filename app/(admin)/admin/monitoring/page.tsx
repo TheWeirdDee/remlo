@@ -100,7 +100,11 @@ export default function AdminMonitoringPage() {
           <div className="divide-y divide-[var(--border-default)]">
             {(data?.payrollRuns ?? []).length > 0 ? (
               data?.payrollRuns.map((run) => (
-                <div key={run.id} className="px-5 py-4">
+                <Link
+                  key={run.id}
+                  href={`/admin/payroll/${run.id}`}
+                  className="block px-5 py-4 transition-colors hover:bg-[var(--bg-base)]"
+                >
                   <div className="flex items-center justify-between gap-3">
                     <p className="text-sm font-medium text-[var(--text-primary)]">{run.companyName}</p>
                     <span className="text-xs text-[var(--text-muted)]">{formatDate(run.created_at)}</span>
@@ -108,8 +112,18 @@ export default function AdminMonitoringPage() {
                   <p className="mt-2 text-xs text-[var(--text-secondary)]">
                     {run.employee_count} employees · {formatCurrency(run.total_amount)}
                   </p>
-                  <p className="mt-1 text-xs text-[var(--text-muted)]">{run.status}</p>
-                </div>
+                  <p
+                    className={`mt-1 text-xs ${
+                      run.status === 'failed'
+                        ? 'text-[var(--status-error)]'
+                        : run.status === 'confirmed'
+                          ? 'text-[var(--status-success)]'
+                          : 'text-[var(--text-muted)]'
+                    }`}
+                  >
+                    {run.status}
+                  </p>
+                </Link>
               ))
             ) : (
               <div className="p-8 text-sm text-[var(--text-muted)]">No payroll submissions recorded.</div>

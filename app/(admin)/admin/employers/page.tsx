@@ -1,7 +1,8 @@
 'use client'
 
 import * as React from 'react'
-import { Search } from 'lucide-react'
+import Link from 'next/link'
+import { Search, ChevronRight } from 'lucide-react'
 import { SectionHeader } from '@/components/ui/SectionHeader'
 import { useAdminScope, type AdminEmployersResponse } from '@/lib/hooks/useAdmin'
 
@@ -61,22 +62,49 @@ export default function AdminEmployersPage() {
           </thead>
           <tbody className="divide-y divide-[var(--border-default)]">
             {filtered.map((employer) => (
-              <tr key={employer.id} className="hover:bg-[var(--bg-base)]">
+              <tr key={employer.id} className="cursor-pointer transition-colors hover:bg-[var(--bg-base)]">
                 <td className="px-5 py-4">
-                  <p className="font-medium text-[var(--text-primary)]">{employer.company_name}</p>
-                  <p className="mt-0.5 font-mono text-xs text-[var(--text-muted)]">{employer.owner_user_id}</p>
+                  <Link href={`/admin/employers/${employer.id}`} className="block">
+                    <p className="font-medium text-[var(--text-primary)] hover:underline">{employer.company_name}</p>
+                    <p className="mt-0.5 font-mono text-xs text-[var(--text-muted)]">{employer.owner_user_id}</p>
+                  </Link>
                 </td>
-                <td className="px-5 py-4 text-[var(--text-primary)]">{employer.subscription_tier}</td>
-                <td className="px-5 py-4 text-[var(--text-primary)]">{employer.teamCount}</td>
-                <td className="px-5 py-4 text-[var(--text-primary)]">{employer.cardCount}</td>
-                <td className="px-5 py-4 font-mono text-[var(--text-primary)]">{formatCurrency(employer.payrollVolume)}</td>
-                <td className="px-5 py-4 font-mono text-[var(--text-primary)]">{formatCurrency(employer.mppSpend)}</td>
+                <td className="px-5 py-4 text-[var(--text-primary)]">
+                  <Link href={`/admin/employers/${employer.id}`} className="block">
+                    {employer.subscription_tier}
+                  </Link>
+                </td>
+                <td className="px-5 py-4 text-[var(--text-primary)]">
+                  <Link href={`/admin/employers/${employer.id}`} className="block">
+                    {employer.teamCount}
+                  </Link>
+                </td>
+                <td className="px-5 py-4 text-[var(--text-primary)]">
+                  <Link href={`/admin/employers/${employer.id}`} className="block">
+                    {employer.cardCount}
+                  </Link>
+                </td>
+                <td className="px-5 py-4 font-mono text-[var(--text-primary)]">
+                  <Link href={`/admin/employers/${employer.id}`} className="block">
+                    {formatCurrency(employer.payrollVolume)}
+                  </Link>
+                </td>
+                <td className="px-5 py-4 font-mono text-[var(--text-primary)]">
+                  <Link href={`/admin/employers/${employer.id}`} className="block">
+                    {formatCurrency(employer.mppSpend)}
+                  </Link>
+                </td>
                 <td className="px-5 py-4 text-xs text-[var(--text-secondary)]">
-                  {employer.bridge_customer_id ? 'Bridge linked' : 'Bridge pending'}
-                  <br />
-                  {employer.treasury_contract ? 'Treasury linked' : 'Treasury pending'}
-                  <br />
-                  {employer.employer_admin_wallet ? 'On-chain admin linked' : 'On-chain admin pending'}
+                  <Link href={`/admin/employers/${employer.id}`} className="flex items-start justify-between gap-2">
+                    <span>
+                      {employer.bridge_customer_id ? 'Bridge linked' : 'Bridge pending'}
+                      <br />
+                      {employer.treasury_contract ? 'Treasury linked' : 'Treasury pending'}
+                      <br />
+                      {employer.employer_admin_wallet ? 'On-chain admin linked' : 'On-chain admin pending'}
+                    </span>
+                    <ChevronRight className="mt-1 h-4 w-4 shrink-0 text-[var(--text-muted)]" />
+                  </Link>
                 </td>
               </tr>
             ))}
