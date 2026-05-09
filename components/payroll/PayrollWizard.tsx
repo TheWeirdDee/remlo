@@ -11,6 +11,7 @@ import { BatchProgress, type BatchStatus } from '@/components/payroll/BatchProgr
 import { GasSponsored } from '@/components/wallet/GasSponsored'
 import { ChainBadge } from '@/components/wallet/ChainBadge'
 import { SolanaBadge } from '@/components/wallet/SolanaBadge'
+import { CompliancePreflightPanel } from '@/components/payroll/CompliancePreflightPanel'
 import { usePrivyAuthedFetch } from '@/lib/hooks/usePrivyAuthedFetch'
 import { cn } from '@/lib/utils'
 import { estimateBatchCount } from '@/lib/solana-payroll'
@@ -247,7 +248,15 @@ function Step2({
 
 // ─── Step 3: Review ─────────────────────────────────────────────────────────
 
-function Step3({ items, chain }: { items: PayrollItem[]; chain: 'tempo' | 'solana' }) {
+function Step3({
+  items,
+  chain,
+  employerId,
+}: {
+  items: PayrollItem[]
+  chain: 'tempo' | 'solana'
+  employerId: string
+}) {
   const total = items.reduce((s, i) => s + i.amount, 0)
   const fee = 0.01 // <$0.01 per spec
 
@@ -302,6 +311,11 @@ function Step3({ items, chain }: { items: PayrollItem[]; chain: 'tempo' | 'solan
           </div>
         </div>
       </div>
+      <CompliancePreflightPanel
+        employerId={employerId}
+        employeeIds={items.map((i) => i.employee.id)}
+        chain={chain}
+      />
       <div className="flex items-center gap-2 rounded-lg border border-[var(--border-default)] bg-[var(--bg-surface)] px-4 py-3">
         <GasSponsored />
         <span className="text-xs text-[var(--text-muted)]">Gas fees sponsored by your treasury budget</span>
@@ -480,7 +494,7 @@ export function PayrollWizard({ employees, employerId, onComplete }: PayrollWiza
             <Step2 items={items} onAmountChange={updateAmount} />
           )}
           {step === 2 && (
-            <Step3 items={items} chain={chain} />
+            <Step3 items={items} chain={chain} employerId={employerId} />
           )}
           {step === 3 && (
             <BatchProgress
