@@ -3,6 +3,9 @@ import { createServerClient } from '@/lib/supabase-server'
 import crypto from 'crypto'
 import { recordWebhookEvent, deriveExternalId } from '@/lib/webhook-idempotency'
 import { createNotification } from '@/lib/notifications'
+import { sendEmail } from '@/lib/email/client'
+import { getPreferences } from '@/lib/queries/notification-preferences'
+import { whitelistAddress } from '@/lib/tempo/policy-admin'
 
 /**
  * POST /api/webhooks/bridge
@@ -158,7 +161,7 @@ async function handleBridgeEvent(
 
       const { data: employee } = await supabase
         .from('employees')
-        .select('id, employer_id, bridge_customer_id')
+        .select('id, employer_id, bridge_customer_id, email, first_name, kyc_status, user_id, wallet_address')
         .eq('bridge_kyc_link_id', link.id)
         .maybeSingle()
 
@@ -167,6 +170,7 @@ async function handleBridgeEvent(
         break
       }
 
+      const previousStatus = employee.kyc_status
       const updates: Record<string, unknown> = {}
       if (link.customer_id && employee.bridge_customer_id !== link.customer_id) {
         updates.bridge_customer_id = link.customer_id
@@ -206,6 +210,28 @@ async function handleBridgeEvent(
           link: `/dashboard/team/${employee.id}`,
           metadata: { employee_id: employee.id },
         })
+        if (previousStatus !== 'approved') {
+          void notifyEmployeeKycStatus({
+            employeeId: employee.id,
+            employerId: employee.employer_id,
+            userId: employee.user_id,
+            firstName: employee.first_name,
+            email: employee.email,
+            status: 'approved',
+            reason: null,
+          })
+          // Promote the employee onto their employer's TIP-403 whitelist so
+          // future payroll runs pass the on-chain compliance check. Best-effort:
+          // the helper logs + returns null on any failure, the webhook never
+          // fails over a policy write.
+          if (employee.wallet_address) {
+            void promoteToWhitelist({
+              employerId: employee.employer_id,
+              employeeId: employee.id,
+              walletAddress: employee.wallet_address as `0x${string}`,
+            })
+          }
+        }
       } else if (link.kyc_status === 'rejected') {
         void createNotification({
           employerId: employee.employer_id,
@@ -216,6 +242,17 @@ async function handleBridgeEvent(
           link: `/dashboard/team/${employee.id}`,
           metadata: { employee_id: employee.id },
         })
+        if (previousStatus !== 'rejected') {
+          void notifyEmployeeKycStatus({
+            employeeId: employee.id,
+            employerId: employee.employer_id,
+            userId: employee.user_id,
+            firstName: employee.first_name,
+            email: employee.email,
+            status: 'rejected',
+            reason: link.rejection_reasons?.join('; ') ?? null,
+          })
+        }
       }
       break
     }
@@ -233,6 +270,13 @@ async function handleBridgeEvent(
 
       const newStatus = mapKycStatus(customer.kyc_status)
       if (!newStatus) break
+
+      // Look up the previous status so we only emit notifications on transitions.
+      const { data: prior } = await supabase
+        .from('employees')
+        .select('id, employer_id, email, first_name, kyc_status, user_id')
+        .eq('bridge_customer_id', customer.id)
+        .maybeSingle()
 
       const updates: Record<string, unknown> = { kyc_status: newStatus }
       if (newStatus === 'approved') {
@@ -255,6 +299,47 @@ async function handleBridgeEvent(
           description: customer.rejection_reasons?.join('; ') ?? null,
           metadata: { customer_id: customer.id, kyc_status: customer.kyc_status } as never,
         })
+
+        const transitioned = prior && prior.kyc_status !== newStatus
+        if (transitioned && newStatus === 'approved') {
+          void createNotification({
+            employerId: employee.employer_id,
+            kind: 'kyc_update',
+            severity: 'success',
+            title: 'Employee verified',
+            body: 'A team member just completed identity verification and is ready for payroll.',
+            link: `/dashboard/team/${employee.id}`,
+            metadata: { employee_id: employee.id },
+          })
+          void notifyEmployeeKycStatus({
+            employeeId: employee.id,
+            employerId: employee.employer_id,
+            userId: prior.user_id,
+            firstName: prior.first_name,
+            email: prior.email,
+            status: 'approved',
+            reason: null,
+          })
+        } else if (transitioned && newStatus === 'rejected') {
+          void createNotification({
+            employerId: employee.employer_id,
+            kind: 'kyc_update',
+            severity: 'error',
+            title: 'KYC rejected for an employee',
+            body: customer.rejection_reasons?.join('; ') ?? 'Bridge rejected the verification.',
+            link: `/dashboard/team/${employee.id}`,
+            metadata: { employee_id: employee.id },
+          })
+          void notifyEmployeeKycStatus({
+            employeeId: employee.id,
+            employerId: employee.employer_id,
+            userId: prior.user_id,
+            firstName: prior.first_name,
+            email: prior.email,
+            status: 'rejected',
+            reason: customer.rejection_reasons?.join('; ') ?? null,
+          })
+        }
       }
       break
     }
@@ -306,4 +391,115 @@ function mapKycStatus(bridgeStatus: string | undefined): string | null {
     expired: 'expired',
   }
   return map[bridgeStatus] ?? null
+}
+
+interface NotifyEmployeeKycInput {
+  employeeId: string
+  employerId: string
+  userId: string | null
+  firstName: string | null
+  email: string | null
+  status: 'approved' | 'rejected'
+  reason: string | null
+}
+
+async function notifyEmployeeKycStatus(input: NotifyEmployeeKycInput): Promise<void> {
+  if (!input.email) return
+
+  // Respect the employee's email preference. KYC is consequential — if they
+  // opt out it's their call. We don't have a "transactional override" flag.
+  if (input.userId) {
+    const prefs = await getPreferences(input.userId)
+    if (!prefs.kycEmail) return
+  }
+
+  const supabase = createServerClient()
+  const { data: employer } = await supabase
+    .from('employers')
+    .select('company_name')
+    .eq('id', input.employerId)
+    .maybeSingle()
+  const companyName = employer?.company_name ?? 'your employer'
+  const appUrl = (process.env.NEXT_PUBLIC_APP_URL ?? 'https://remlo.xyz').replace(/\/$/, '')
+
+  if (input.status === 'approved') {
+    await sendEmail({
+      to: input.email,
+      template: 'kyc_approved',
+      idempotencyKey: `kyc-approved:${input.employeeId}`,
+      employerId: input.employerId,
+      props: {
+        firstName: input.firstName,
+        companyName,
+        portalUrl: `${appUrl}/portal`,
+      },
+    })
+  } else {
+    // KYC token is hashed in DB, so we can't reconstruct the original
+    // /kyc/{token} URL here. Point to the portal — the employee re-initiates
+    // verification from there, which mints a fresh link.
+    await sendEmail({
+      to: input.email,
+      template: 'kyc_rejected',
+      idempotencyKey: `kyc-rejected:${input.employeeId}`,
+      employerId: input.employerId,
+      props: {
+        firstName: input.firstName,
+        companyName,
+        reason: input.reason,
+        retryUrl: `${appUrl}/portal`,
+      },
+    })
+  }
+}
+
+interface PromoteInput {
+  employerId: string
+  employeeId: string
+  walletAddress: `0x${string}`
+}
+
+/**
+ * Add the employee's wallet to their employer's TIP-403 whitelist if one
+ * is configured. This is what makes future payroll runs pass the on-chain
+ * compliance check after KYC clears.
+ *
+ * Best-effort:
+ *   - skips silently when the employer has no policy_id
+ *   - skips silently when REMLO_AGENT_PRIVATE_KEY isn't set
+ *   - skips silently when the agent isn't this policy's admin
+ *   - logs to compliance_events on success/failure for audit
+ */
+async function promoteToWhitelist(input: PromoteInput): Promise<void> {
+  const supabase = createServerClient()
+  const { data: employer } = await supabase
+    .from('employers')
+    .select('tip403_policy_id')
+    .eq('id', input.employerId)
+    .maybeSingle()
+
+  const policyId = employer?.tip403_policy_id
+  if (!policyId) return
+
+  const result = await whitelistAddress({
+    policyId: BigInt(policyId),
+    address: input.walletAddress,
+  })
+
+  await supabase.from('compliance_events').insert({
+    employer_id: input.employerId,
+    employee_id: input.employeeId,
+    event_type: 'tip403_whitelist_add',
+    result: result ? 'CLEAR' : 'BLOCKED',
+    description: result
+      ? `Whitelisted ${input.walletAddress} on policy ${policyId}`
+      : `Whitelist write skipped (no admin rights, missing key, or RPC error)`,
+    metadata: result
+      ? ({
+          policy_id: policyId,
+          wallet: input.walletAddress,
+          tx_hash: result.txHash,
+        } as never)
+      : ({ policy_id: policyId, wallet: input.walletAddress } as never),
+  })
 }
