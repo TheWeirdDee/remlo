@@ -3,6 +3,8 @@ import Link from 'next/link'
 import { ArrowLeft } from 'lucide-react'
 import { WaitlistForm } from '@/components/marketing/WaitlistForm'
 
+const APP_URL = (process.env.NEXT_PUBLIC_APP_URL ?? 'https://www.remlo.xyz').replace(/\/$/, '')
+
 /**
  * /waitlist — direct-link entry point for the launch waitlist.
  *
@@ -22,14 +24,26 @@ export const metadata: Metadata = {
     title: 'Join the Remlo waitlist',
     description:
       'Be first when Remlo opens to production payroll. One confirmation email, nothing else.',
-    url: 'https://www.remlo.xyz/waitlist',
+    url: `${APP_URL}/waitlist`,
     siteName: 'Remlo',
     type: 'website',
+    images: [
+      {
+        url: `${APP_URL}/opengraph-image`,
+        width: 1200,
+        height: 630,
+        alt: 'Join the Remlo waitlist',
+      },
+    ],
   },
   twitter: {
     card: 'summary_large_image',
     title: 'Join the Remlo waitlist',
     description: 'Be first when Remlo opens to production payroll.',
+    images: [`${APP_URL}/twitter-image`],
+  },
+  alternates: {
+    canonical: `${APP_URL}/waitlist`,
   },
 }
 

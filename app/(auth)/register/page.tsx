@@ -22,6 +22,7 @@ export default function RegisterPage() {
   const [companyName, setCompanyName] = React.useState('')
   const [companySize, setCompanySize] = React.useState('')
   const [submitting, setSubmitting] = React.useState(false)
+  const [checkingRole, setCheckingRole] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
 
   React.useEffect(() => {
@@ -29,6 +30,51 @@ export default function RegisterPage() {
       router.push('/login')
     }
   }, [ready, authenticated, router])
+
+  React.useEffect(() => {
+    if (!ready || !authenticated) return
+    let cancelled = false
+
+    async function routeExistingAccount() {
+      setCheckingRole(true)
+      try {
+        const token = await getAccessToken()
+        if (!token) throw new Error('Not authenticated')
+
+        const headers = { Authorization: `Bearer ${token}` }
+        const [employerRes, employeeRes] = await Promise.all([
+          fetch('/api/employers', { headers }),
+          fetch('/api/me/employee', { headers }),
+        ])
+
+        if (cancelled) return
+
+        if (employerRes.ok) {
+          const json = (await employerRes.json()) as { employer?: { id: string } | null }
+          if (json.employer?.id) {
+            router.replace('/dashboard')
+            return
+          }
+        }
+
+        if (employeeRes.ok) {
+          router.replace('/portal')
+          return
+        }
+      } catch {
+        if (cancelled) return
+        // Stay on the setup page. Submitting the form will surface any auth/API issue.
+      } finally {
+        if (!cancelled) setCheckingRole(false)
+      }
+    }
+
+    void routeExistingAccount()
+
+    return () => {
+      cancelled = true
+    }
+  }, [ready, authenticated, getAccessToken, router])
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -66,8 +112,12 @@ export default function RegisterPage() {
     }
   }
 
-  if (!ready || !authenticated) {
-    return null
+  if (!ready || !authenticated || checkingRole) {
+    return (
+      <div className="min-h-screen bg-[var(--bg-base)] flex items-center justify-center">
+        <span className="w-6 h-6 rounded-full border-2 border-[var(--text-muted)] border-t-[var(--accent)] animate-spin" />
+      </div>
+    )
   }
 
   return (

@@ -27,7 +27,7 @@ function ClientLoginContent() {
 
   React.useEffect(() => {
     if (ready && authenticated) {
-      router.push('/dashboard')
+      router.push('/register')
     }
   }, [ready, authenticated, router])
 
