@@ -7,9 +7,8 @@ const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? 'https://www.remlo.xyz'
  * GET /api/waitlist/confirm?token=...
  *
  * Confirmation link from the double-opt-in email. Always 302s back to the
- * marketing site with a `?confirmed=ok|already|invalid` query param so the
- * landing page can render an appropriate banner without us having to build
- * a separate confirmation page.
+ * waitlist page with a `?waitlist_confirmed=ok|already|invalid` query param
+ * so the post-confirmation experience stays inside the waitlist flow.
  */
 export async function GET(req: NextRequest) {
   const token = req.nextUrl.searchParams.get('token')?.trim() ?? ''
@@ -28,7 +27,7 @@ export async function GET(req: NextRequest) {
       break
   }
 
-  const dest = new URL('/', APP_URL)
+  const dest = new URL('/waitlist', APP_URL)
   dest.searchParams.set('waitlist_confirmed', status)
   return NextResponse.redirect(dest, { status: 303 })
 }

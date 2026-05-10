@@ -2,6 +2,7 @@ import type { Metadata } from 'next'
 import Link from 'next/link'
 import { ArrowLeft } from 'lucide-react'
 import { WaitlistForm } from '@/components/marketing/WaitlistForm'
+import { WaitlistConfirmedBanner } from '@/components/marketing/WaitlistConfirmedBanner'
 
 const APP_URL = (process.env.NEXT_PUBLIC_APP_URL ?? 'https://www.remlo.xyz').replace(/\/$/, '')
 
@@ -50,6 +51,7 @@ export const metadata: Metadata = {
 export default function WaitlistPage() {
   return (
     <main className="min-h-screen bg-[var(--bg-base)] px-6 py-12 sm:py-20">
+      <WaitlistConfirmedBanner />
       <div className="mx-auto max-w-xl">
         <Link
           href="/"
