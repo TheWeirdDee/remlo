@@ -16,7 +16,7 @@ import {
   Wallet,
   ArrowDownRight,
 } from 'lucide-react'
-import { usePrivyAuthedJson } from '@/lib/hooks/usePrivyAuthedFetch'
+import { usePrivyAuthedFetch, usePrivyAuthedJson } from '@/lib/hooks/usePrivyAuthedFetch'
 
 type ActivityKind =
   | 'payment_received'
@@ -39,8 +39,6 @@ interface ActivityItem {
   created_at: string
   metadata?: Record<string, unknown> | null
 }
-
-const LAST_SEEN_KEY = 'remlo-employee-activity-last-seen'
 
 function timeAgo(iso: string): string {
   const ms = Date.now() - new Date(iso).getTime()
@@ -73,6 +71,7 @@ const SEVERITY_TINT: Record<Severity, string> = {
 
 export default function ActivityPage(): React.ReactElement {
   const fetchJson = usePrivyAuthedJson()
+  const authedFetch = usePrivyAuthedFetch()
   const queryClient = useQueryClient()
   const query = useQuery<{ items: ActivityItem[] }>({
     queryKey: ['portal-activity'],
@@ -82,14 +81,31 @@ export default function ActivityPage(): React.ReactElement {
 
   const items = query.data?.items ?? []
   const newestIso = items[0]?.created_at ?? null
+  const markedNewestRef = React.useRef<string | null>(null)
 
-  // On view: bump last-seen to the newest item we just rendered. The bell
-  // reads the same key to compute its unread count.
+  // On view: acknowledge the latest server-derived activity item. Read state
+  // is persisted by /api/portal/activity so every device sees the same truth.
   React.useEffect(() => {
     if (!newestIso) return
-    window.localStorage.setItem(LAST_SEEN_KEY, newestIso)
-    void queryClient.invalidateQueries({ queryKey: ['portal-activity-unread'] })
-  }, [newestIso, queryClient])
+    if (markedNewestRef.current === newestIso) return
+    markedNewestRef.current = newestIso
+
+    async function markViewed() {
+      try {
+        await authedFetch('/api/portal/activity', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'mark_all_read' }),
+        })
+        void queryClient.invalidateQueries({ queryKey: ['portal-activity-unread'] })
+      } catch (err) {
+        console.error('[employee-activity] mark viewed failed', err)
+        markedNewestRef.current = null
+      }
+    }
+
+    void markViewed()
+  }, [newestIso, authedFetch, queryClient])
 
   return (
     <div className="mx-auto max-w-[640px] space-y-4 px-4 pb-24 pt-6">

@@ -14,8 +14,8 @@ import { TEMPO_EXPLORER_URL } from '@/lib/constants'
  *   - compliance_events (KYC)         → "KYC approved / rejected"
  *   - system_announcements (active)   → operator banners (also shown above)
  *
- * Returns at most 50 items, sorted newest first. The client tracks
- * last-viewed locally; unread count is computed there.
+ * Returns at most 50 items, sorted newest first, with unread count computed
+ * against a server-persisted per-employee high-water mark.
  */
 export const dynamic = 'force-dynamic'
 
@@ -41,14 +41,10 @@ interface ActivityItem {
   metadata?: Record<string, unknown> | null
 }
 
-export async function GET(req: NextRequest) {
-  const employee = await getCallerEmployee(req)
-  if (!employee) {
-    return NextResponse.json({ items: [], last_seen: null }, { status: 401 })
-  }
-
-  const supabase = createServerClient()
-
+async function buildActivityItems(
+  supabase: ReturnType<typeof createServerClient>,
+  employee: NonNullable<Awaited<ReturnType<typeof getCallerEmployee>>>,
+): Promise<ActivityItem[]> {
   const [payments, complianceEvents, virtualInflowsResp] = await Promise.all([
     supabase
       .from('payment_items')
@@ -227,5 +223,91 @@ export async function GET(req: NextRequest) {
   items.sort(
     (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
   )
-  return NextResponse.json({ items: items.slice(0, 50) })
+  return items.slice(0, 50)
+}
+
+async function getLastSeenAt(
+  supabase: ReturnType<typeof createServerClient>,
+  employeeId: string,
+): Promise<string | null> {
+  const { data, error } = await supabase
+    .from('employee_activity_reads')
+    .select('last_seen_at')
+    .eq('employee_id', employeeId)
+    .maybeSingle()
+
+  if (error) throw error
+  return typeof data?.last_seen_at === 'string' ? data.last_seen_at : null
+}
+
+function unreadCount(items: ActivityItem[], lastSeenAt: string | null): number {
+  if (items.length === 0) return 0
+  if (!lastSeenAt) return items.length
+  const lastSeenMs = new Date(lastSeenAt).getTime()
+  if (!Number.isFinite(lastSeenMs)) return items.length
+  return items.filter((item) => new Date(item.created_at).getTime() > lastSeenMs).length
+}
+
+export async function GET(req: NextRequest) {
+  const employee = await getCallerEmployee(req)
+  if (!employee) {
+    return NextResponse.json({ items: [], unread_count: 0, last_seen_at: null }, { status: 401 })
+  }
+
+  const supabase = createServerClient()
+
+  try {
+    const [items, lastSeenAt] = await Promise.all([
+      buildActivityItems(supabase, employee),
+      getLastSeenAt(supabase, employee.id),
+    ])
+
+    return NextResponse.json({
+      items,
+      unread_count: unreadCount(items, lastSeenAt),
+      last_seen_at: lastSeenAt,
+    })
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Unable to load activity'
+    return NextResponse.json({ error: message }, { status: 500 })
+  }
+}
+
+export async function POST(req: NextRequest) {
+  const employee = await getCallerEmployee(req)
+  if (!employee) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
+  const body = (await req.json().catch(() => ({}))) as { action?: string }
+  if (body.action !== 'mark_all_read') {
+    return NextResponse.json({ error: 'Unsupported action' }, { status: 400 })
+  }
+
+  const supabase = createServerClient()
+
+  try {
+    const items = await buildActivityItems(supabase, employee)
+    const lastSeenAt = items[0]?.created_at ?? new Date().toISOString()
+
+    const { error } = await supabase.from('employee_activity_reads').upsert(
+      {
+        employee_id: employee.id,
+        last_seen_at: lastSeenAt,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: 'employee_id' },
+    )
+
+    if (error) throw error
+
+    return NextResponse.json({
+      ok: true,
+      last_seen_at: lastSeenAt,
+      unread_count: 0,
+    })
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Unable to mark activity read'
+    return NextResponse.json({ error: message }, { status: 500 })
+  }
 }

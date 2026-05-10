@@ -514,6 +514,32 @@ export type Database = {
           },
         ]
       }
+      employee_activity_reads: {
+        Row: {
+          employee_id: string
+          last_seen_at: string
+          updated_at: string
+        }
+        Insert: {
+          employee_id: string
+          last_seen_at?: string
+          updated_at?: string
+        }
+        Update: {
+          employee_id?: string
+          last_seen_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "employee_activity_reads_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: true
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       employer_agent_authorizations: {
         Row: {
           active: boolean
