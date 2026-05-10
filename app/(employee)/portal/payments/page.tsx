@@ -1,6 +1,7 @@
 'use client'
 
 import * as React from 'react'
+import { useSearchParams } from 'next/navigation'
 import { motion, AnimatePresence } from 'framer-motion'
 import { toast } from 'sonner'
 import { Search, ChevronDown, ExternalLink, FileText, Loader2 } from 'lucide-react'
@@ -67,9 +68,10 @@ function statusBadge(status: string): React.ReactNode {
 
 // ─── Payment card ─────────────────────────────────────────────────────────────
 
-function PaymentCard({ payment }: { payment: PaymentWithRun }) {
-  const [expanded, setExpanded] = React.useState(false)
+function PaymentCard({ payment, isTarget }: { payment: PaymentWithRun; isTarget?: boolean }) {
+  const [expanded, setExpanded] = React.useState(Boolean(isTarget))
   const [downloadingPayslip, setDownloadingPayslip] = React.useState(false)
+  const cardRef = React.useRef<HTMLDivElement>(null)
   const authedFetch = usePrivyAuthedFetch()
   const run = Array.isArray(payment.payroll_run) ? payment.payroll_run[0] : payment.payroll_run
   const settlementMs = run?.settlement_time_ms
@@ -105,8 +107,23 @@ function PaymentCard({ payment }: { payment: PaymentWithRun }) {
     }
   }
 
+  React.useEffect(() => {
+    if (!isTarget) return
+    setExpanded(true)
+    const timeout = window.setTimeout(() => {
+      cardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    }, 100)
+    return () => window.clearTimeout(timeout)
+  }, [isTarget])
+
   return (
-    <div className="rounded-2xl bg-[var(--bg-surface)] border border-[var(--border-default)] overflow-hidden">
+    <div
+      ref={cardRef}
+      className={cn(
+        'scroll-mt-20 overflow-hidden rounded-2xl border bg-[var(--bg-surface)] transition-shadow',
+        isTarget ? 'border-[var(--accent)] shadow-[0_0_0_1px_var(--accent)]' : 'border-[var(--border-default)]',
+      )}
+    >
       {/* Main row */}
       <button
         onClick={() => setExpanded((v) => !v)}
@@ -296,11 +313,14 @@ function PaymentsSkeleton() {
 
 // ─── Main page ────────────────────────────────────────────────────────────────
 
-export default function PaymentsPage() {
+function PaymentsPageContent() {
+  const searchParams = useSearchParams()
   const { data: employee, isLoading: employeeLoading } = useEmployee()
   const { data: payments, isLoading } = useEmployeePayments(employee?.id, 50)
 
   const [search, setSearch] = React.useState('')
+  const targetPaymentId = searchParams.get('payment')
+  const targetRunId = searchParams.get('run')
 
   const filtered = React.useMemo(() => {
     if (!payments) return []
@@ -350,19 +370,34 @@ export default function PaymentsPage() {
         grouped.map(([month, items]) => (
           <div key={month} className="space-y-3">
             <h2 className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wider">{month}</h2>
-            {items.map((payment, i) => (
-              <motion.div
-                key={payment.id}
-                initial={{ opacity: 0, y: 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.25, delay: i * 0.04 }}
-              >
-                <PaymentCard payment={payment} />
-              </motion.div>
-            ))}
+            {items.map((payment, i) => {
+              const run = Array.isArray(payment.payroll_run) ? payment.payroll_run[0] : payment.payroll_run
+              const isTarget =
+                payment.id === targetPaymentId ||
+                Boolean(targetRunId && run?.id === targetRunId)
+
+              return (
+                <motion.div
+                  key={payment.id}
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.25, delay: i * 0.04 }}
+                >
+                  <PaymentCard payment={payment} isTarget={isTarget} />
+                </motion.div>
+              )
+            })}
           </div>
         ))
       )}
     </div>
+  )
+}
+
+export default function PaymentsPage() {
+  return (
+    <React.Suspense fallback={<PaymentsSkeleton />}>
+      <PaymentsPageContent />
+    </React.Suspense>
   )
 }

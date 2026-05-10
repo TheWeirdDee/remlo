@@ -91,7 +91,7 @@ async function buildActivityItems(
         severity: 'success',
         title: `${amountStr} received`,
         body: payment.tx_hash ? `On-chain tx: ${payment.tx_hash.slice(0, 14)}…` : null,
-        link: `/portal/payments?run=${encodeURIComponent(payment.payroll_run_id ?? '')}`,
+        link: `/portal/payments?payment=${encodeURIComponent(payment.id)}&run=${encodeURIComponent(payment.payroll_run_id ?? '')}`,
         created_at: payment.created_at,
         metadata: {
           tx_hash: payment.tx_hash,
@@ -105,7 +105,7 @@ async function buildActivityItems(
         severity: 'info',
         title: `${amountStr} pending`,
         body: 'Your payroll is broadcasting on-chain. Settles in seconds.',
-        link: `/portal/payments?run=${encodeURIComponent(payment.payroll_run_id ?? '')}`,
+        link: `/portal/payments?payment=${encodeURIComponent(payment.id)}&run=${encodeURIComponent(payment.payroll_run_id ?? '')}`,
         created_at: payment.created_at,
       })
     } else if (payment.status === 'failed') {
@@ -115,7 +115,7 @@ async function buildActivityItems(
         severity: 'error',
         title: `${amountStr} failed to settle`,
         body: 'Reach out to your employer if this persists.',
-        link: `/portal/payments?run=${encodeURIComponent(payment.payroll_run_id ?? '')}`,
+        link: `/portal/payments?payment=${encodeURIComponent(payment.id)}&run=${encodeURIComponent(payment.payroll_run_id ?? '')}`,
         created_at: payment.created_at,
       })
     }

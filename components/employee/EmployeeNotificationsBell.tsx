@@ -81,7 +81,6 @@ export function EmployeeNotificationsBell() {
   }, [authedFetch, queryClient])
 
   async function handleMarkAllRead() {
-    if (unreadCount === 0) return
     try {
       await markAllRead()
     } catch (err) {
@@ -118,7 +117,7 @@ export function EmployeeNotificationsBell() {
       </button>
 
       {open && (
-        <div className="absolute right-0 top-full z-20 mt-1.5 flex max-h-[28rem] w-80 flex-col rounded-xl border border-[var(--border-default)] bg-[var(--bg-surface)] shadow-lg sm:w-96">
+        <div className="absolute right-0 top-full z-20 mt-1.5 flex max-h-[28rem] w-80 flex-col overflow-hidden rounded-xl border border-[var(--border-default)] bg-[var(--bg-surface)] shadow-lg sm:w-96">
           <div className="flex items-center justify-between border-b border-[var(--border-default)] px-4 py-3">
             <div>
               <p className="text-sm font-semibold text-[var(--text-primary)]">Activity</p>
@@ -126,15 +125,14 @@ export function EmployeeNotificationsBell() {
                 <p className="mt-0.5 text-xs text-[var(--text-muted)]">{unreadCount} unread</p>
               )}
             </div>
-            {unreadCount > 0 && (
-              <button
-                onClick={() => void handleMarkAllRead()}
-                className="inline-flex items-center gap-1 text-xs text-[var(--accent)] hover:underline"
-              >
-                <Check className="h-3 w-3" />
-                Mark all read
-              </button>
-            )}
+            <button
+              onClick={() => void handleMarkAllRead()}
+              disabled={unreadCount === 0}
+              className="inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-xs text-[var(--accent)] transition-colors hover:bg-[var(--accent)]/10 disabled:cursor-default disabled:text-[var(--text-muted)] disabled:hover:bg-transparent"
+            >
+              <Check className="h-3 w-3" />
+              Mark all read
+            </button>
           </div>
 
           <div className="flex-1 overflow-y-auto">
@@ -190,7 +188,7 @@ export function EmployeeNotificationsBell() {
                 console.error('[employee-activity] mark all read failed', err)
               })
             }}
-            className="flex items-center justify-between border-t border-[var(--border-default)] px-4 py-3 text-xs font-medium text-[var(--accent)] hover:bg-[var(--bg-subtle)]"
+            className="flex items-center justify-between rounded-b-xl border-t border-[var(--border-default)] px-4 py-3 text-xs font-medium text-[var(--accent)] transition-colors hover:bg-[var(--bg-subtle)]"
           >
             View all activity
             <ChevronRight className="h-3.5 w-3.5" />
