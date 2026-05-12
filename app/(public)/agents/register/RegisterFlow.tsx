@@ -1,6 +1,7 @@
 'use client'
 
 import * as React from 'react'
+import { useSolanaWallets } from '@privy-io/react-auth'
 import { encodeFunctionData } from 'viem'
 import { IdentityRegistryAbi } from '@/lib/reputation/erc8004-client'
 
@@ -34,10 +35,15 @@ export function RegisterFlow({
   tempoRpcUrl,
   explorerBase,
 }: RegisterFlowProps) {
+  const { ready: solanaReady, wallets: solanaWallets } = useSolanaWallets()
+  const solanaWallet = solanaWallets[0] ?? null
   const [agentName, setAgentName] = React.useState('')
   const [agentDescription, setAgentDescription] = React.useState('')
   const [agentEndpoint, setAgentEndpoint] = React.useState('')
   const [agentUri, setAgentUri] = React.useState('')
+  const [solanaSigning, setSolanaSigning] = React.useState(false)
+  const [solanaSignedBody, setSolanaSignedBody] = React.useState('')
+  const [solanaSignError, setSolanaSignError] = React.useState<string | null>(null)
 
   const [lookupAgentId, setLookupAgentId] = React.useState('')
   const [lookupState, setLookupState] = React.useState<
@@ -109,8 +115,103 @@ export function RegisterFlow({
     }
   }
 
+  async function buildSolanaRegistrationBody() {
+    setSolanaSignError(null)
+    setSolanaSignedBody('')
+
+    if (!solanaWallet) {
+      setSolanaSignError('No Privy Solana wallet is loaded in this browser session.')
+      return
+    }
+
+    setSolanaSigning(true)
+    try {
+      const timestampMs = Date.now().toString()
+      const message = [
+        'Remlo Agent Registration v1',
+        `Solana Pubkey: ${solanaWallet.address}`,
+        `Timestamp: ${timestampMs}`,
+      ].join('\n')
+      const signature = await solanaWallet.signMessage(new TextEncoder().encode(message))
+      const body = {
+        solana_pubkey: solanaWallet.address,
+        timestamp_ms: timestampMs,
+        signature: toHex(signature),
+        display_name: agentName.trim() || 'Winszn Payroll Agent',
+        description:
+          agentDescription.trim() ||
+          'Employee-owned Solana agent identity for Remlo payroll and compliance demos.',
+        endpoint: agentEndpoint.trim() || 'https://www.remlo.xyz/api/mcp',
+        capabilities: ['payroll', 'compliance', 'agent-pay', 'solana'],
+        contact_url: 'https://t.me/remlo_xyz',
+      }
+      setSolanaSignedBody(JSON.stringify(body, null, 2))
+    } catch (err) {
+      setSolanaSignError(err instanceof Error ? err.message : 'Unable to sign Solana registration message.')
+    } finally {
+      setSolanaSigning(false)
+    }
+  }
+
   return (
     <div className="space-y-10">
+      <Step number={0} title="Solana fast path for AgentCash">
+        <p className="text-sm text-[var(--text-secondary)]">
+          If your agent identity is a Solana wallet, you do not need an
+          ERC-8004 mint. Sign the Remlo registration message with the loaded
+          Privy Solana wallet, then submit the generated body through
+          AgentCash. AgentCash pays the HTTP 402 fee; this wallet signature
+          proves the agent identity.
+        </p>
+        <div className="rounded-2xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-4 space-y-3">
+          <div className="grid gap-2 sm:grid-cols-[1fr_auto] sm:items-center">
+            <div>
+              <p className="text-xs uppercase tracking-wide text-[var(--text-muted)]">
+                Loaded Solana wallet
+              </p>
+              <p className="mt-1 break-all font-mono text-xs text-[var(--mono)]">
+                {solanaWallet?.address ?? (solanaReady ? 'No Solana wallet loaded' : 'Loading Privy wallets...')}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={buildSolanaRegistrationBody}
+              disabled={!solanaReady || !solanaWallet || solanaSigning}
+              className="h-10 rounded-lg bg-[var(--accent)] px-4 text-sm font-semibold text-[var(--accent-foreground)] transition-opacity hover:opacity-90 disabled:opacity-50"
+            >
+              {solanaSigning ? 'Signing...' : 'Sign Solana body'}
+            </button>
+          </div>
+          {solanaSignError ? (
+            <p className="text-xs text-red-400">{solanaSignError}</p>
+          ) : null}
+          {solanaSignedBody ? (
+            <div className="space-y-3">
+              <CopyRow
+                label="Signed AgentCash body"
+                value={solanaSignedBody}
+                onCopy={copy}
+                copied={copied}
+                mono
+                truncate
+              />
+              <pre className="rounded-md bg-[var(--bg-subtle)] p-3 text-xs overflow-x-auto">
+                {`npx -y agentcash@latest fetch https://www.remlo.xyz/api/mpp/agents/register \\
+  -m POST \\
+  -H "Content-Type: application/json" \\
+  -d '${solanaSignedBody.replaceAll("'", "'\\''")}'`}
+              </pre>
+              <p className="text-xs text-[var(--text-muted)]">
+                The response returns{' '}
+                <code className="font-mono">X-Agent-Identifier: solana:{solanaWallet?.address}</code>.
+                Authorize that identifier in the employer dashboard with the
+                per-transaction and per-day caps you want to demo.
+              </p>
+            </div>
+          ) : null}
+        </div>
+      </Step>
+
       <Step number={1} title="Describe your agent">
         <p className="text-sm text-[var(--text-secondary)]">
           The agentURI is whatever URL or data URI you want indexers to fetch
@@ -294,6 +395,10 @@ const tx = await wallet.sendTransaction({
       </Step>
     </div>
   )
+}
+
+function toHex(bytes: Uint8Array) {
+  return `0x${Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('')}`
 }
 
 function Step({

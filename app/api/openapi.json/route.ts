@@ -1290,7 +1290,7 @@ const spec = {
       post: {
         summary: 'Register an agent on Remlo',
         description:
-          'Adds an ERC-8004-identified agent to the public Remlo directory and returns the X-Agent-Identifier the agent will use across employers. Identity is proven by ECDSA signature over a canonical message, cross-checked against the on-chain ownerOf the agent token. The $0.10 charge is the registration fee; identity is anchored on-chain (Tempo IdentityRegistry), not in our database. Re-registering with the same agent_id updates the profile in place.',
+          'Adds a Tempo ERC-8004 or Solana Ed25519 agent to the public Remlo directory and returns the X-Agent-Identifier the agent will use across employers. Tempo identity is proven by ECDSA signature over a canonical message and cross-checked against IdentityRegistry.ownerOf(agent_id). Solana identity is proven by Ed25519 signature from the solana_pubkey itself. The $0.10 charge is the registration fee. Re-registering the same identity updates the profile in place.',
         operationId: 'registerAgent',
         tags: ['Agent'],
         'x-payment-info': {
@@ -1299,61 +1299,112 @@ const spec = {
           'x-networks': MULTI_RAIL_NETWORKS,
         },
         'x-guidance':
-          'Precondition: the agent must already own an ERC-8004 token via the Tempo IdentityRegistry (mint at /agents/register or via direct contract call). Sign the canonical message `Remlo Agent Registration v1\\nAgent ID: <id>\\nOwner: <eoa>\\nTimestamp: <ms>` with the EOA that owns the token, then POST with proof + profile metadata. The server verifies via on-chain ownerOf + ECDSA recovery — no key material is sent.',
+          'Choose one identity proof. Tempo ERC-8004: first mint an agent token via the Tempo IdentityRegistry, sign `Remlo Agent Registration v1\\nAgent ID: <id>\\nOwner: <eoa>\\nTimestamp: <ms>` with the owning EOA, then POST {agent_id, owner_address, timestamp_ms, signature, display_name, ...}. Solana: sign `Remlo Agent Registration v1\\nSolana Pubkey: <pubkey>\\nTimestamp: <ms>` with the Ed25519 private key for solana_pubkey, then POST {solana_pubkey, timestamp_ms, signature, display_name, ...}. AgentCash pays the HTTP 402 challenge; it does not create the identity signature for you.',
         requestBody: {
           required: true,
           content: {
             'application/json': {
               schema: {
-                type: 'object',
-                required: ['agent_id', 'owner_address', 'timestamp_ms', 'signature', 'display_name'],
-                properties: {
-                  agent_id: {
-                    type: 'string',
-                    pattern: '^[0-9]+$',
-                    description: 'uint256 agent ID from the Tempo IdentityRegistry, as decimal string.',
+                oneOf: [
+                  {
+                    title: 'Tempo ERC-8004 agent',
+                    type: 'object',
+                    required: ['agent_id', 'owner_address', 'timestamp_ms', 'signature', 'display_name'],
+                    properties: {
+                      agent_id: {
+                        type: 'string',
+                        pattern: '^[0-9]+$',
+                        description: 'uint256 agent ID from the Tempo IdentityRegistry, as decimal string.',
+                      },
+                      owner_address: {
+                        type: 'string',
+                        pattern: '^0x[a-fA-F0-9]{40}$',
+                        description: 'EOA that owns the agent token. Must match ownerOf(agent_id).',
+                      },
+                      timestamp_ms: {
+                        type: 'string',
+                        description: 'Unix milliseconds when the message was signed. Must be within 5 minutes of server time.',
+                      },
+                      signature: {
+                        type: 'string',
+                        pattern: '^0x[a-fA-F0-9]+$',
+                        description: 'ECDSA signature over `Remlo Agent Registration v1\\nAgent ID: <id>\\nOwner: <owner_address_lowercase>\\nTimestamp: <timestamp_ms>`.',
+                      },
+                      display_name: {
+                        type: 'string',
+                        minLength: 1,
+                        maxLength: 80,
+                        description: 'Human-readable name shown in the directory.',
+                      },
+                      description: {
+                        type: 'string',
+                        maxLength: 500,
+                        description: 'Short description of what the agent does.',
+                      },
+                      endpoint: {
+                        type: 'string',
+                        format: 'uri',
+                        description: 'http(s) URL the agent serves.',
+                      },
+                      capabilities: {
+                        type: 'array',
+                        maxItems: 12,
+                        items: { type: 'string', maxLength: 32 },
+                        description: 'Free-form capability tags (e.g. ["payroll", "compliance"]).',
+                      },
+                      contact_url: {
+                        type: 'string',
+                        description: 'http(s):// or mailto: URL for contact.',
+                      },
+                    },
                   },
-                  owner_address: {
-                    type: 'string',
-                    pattern: '^0x[a-fA-F0-9]{40}$',
-                    description: 'EOA that owns the agent token. Must match ownerOf(agent_id).',
+                  {
+                    title: 'Solana Ed25519 agent',
+                    type: 'object',
+                    required: ['solana_pubkey', 'timestamp_ms', 'signature', 'display_name'],
+                    properties: {
+                      solana_pubkey: {
+                        type: 'string',
+                        pattern: '^[1-9A-HJ-NP-Za-km-z]{32,44}$',
+                        description: 'Base58 Solana public key. This key is the agent identity.',
+                      },
+                      timestamp_ms: {
+                        type: 'string',
+                        description: 'Unix milliseconds when the message was signed. Must be within 5 minutes of server time.',
+                      },
+                      signature: {
+                        type: 'string',
+                        description: 'Ed25519 signature over `Remlo Agent Registration v1\\nSolana Pubkey: <solana_pubkey>\\nTimestamp: <timestamp_ms>`. Accepts base58 or 0x-hex encoded 64-byte signatures.',
+                      },
+                      display_name: {
+                        type: 'string',
+                        minLength: 1,
+                        maxLength: 80,
+                        description: 'Human-readable name shown in the directory.',
+                      },
+                      description: {
+                        type: 'string',
+                        maxLength: 500,
+                        description: 'Short description of what the agent does.',
+                      },
+                      endpoint: {
+                        type: 'string',
+                        format: 'uri',
+                        description: 'http(s) URL the agent serves.',
+                      },
+                      capabilities: {
+                        type: 'array',
+                        maxItems: 12,
+                        items: { type: 'string', maxLength: 32 },
+                        description: 'Free-form capability tags (e.g. ["payroll", "compliance"]).',
+                      },
+                      contact_url: {
+                        type: 'string',
+                        description: 'http(s):// or mailto: URL for contact.',
+                      },
+                    },
                   },
-                  timestamp_ms: {
-                    type: 'string',
-                    description: 'Unix milliseconds when the message was signed. Must be within 5 minutes of server time.',
-                  },
-                  signature: {
-                    type: 'string',
-                    pattern: '^0x[a-fA-F0-9]+$',
-                    description: 'ECDSA signature over the canonical Remlo Agent Registration v1 message.',
-                  },
-                  display_name: {
-                    type: 'string',
-                    minLength: 1,
-                    maxLength: 80,
-                    description: 'Human-readable name shown in the directory.',
-                  },
-                  description: {
-                    type: 'string',
-                    maxLength: 500,
-                    description: 'Short description of what the agent does.',
-                  },
-                  endpoint: {
-                    type: 'string',
-                    format: 'uri',
-                    description: 'http(s) URL the agent serves.',
-                  },
-                  capabilities: {
-                    type: 'array',
-                    maxItems: 12,
-                    items: { type: 'string', maxLength: 32 },
-                    description: 'Free-form capability tags (e.g. ["payroll", "compliance"]).',
-                  },
-                  contact_url: {
-                    type: 'string',
-                    description: 'http(s):// or mailto: URL for contact.',
-                  },
-                },
+                ],
               },
             },
           },
@@ -1406,7 +1457,7 @@ const spec = {
             },
           },
           '403': { description: 'owner_address does not match on-chain ownerOf.' },
-          '404': { description: 'agent_id not found on the IdentityRegistry.' },
+          '404': { description: 'Tempo agent_id not found on the IdentityRegistry.' },
         },
       },
     },

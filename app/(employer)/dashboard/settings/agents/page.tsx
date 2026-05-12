@@ -43,7 +43,7 @@ interface AgentReputation {
 
 interface AgentProfile {
   agent_identifier: string
-  agent_id: string
+  agent_id: string | null
   chain: 'tempo' | 'solana'
   owner_address: string
   display_name: string | null
@@ -615,11 +615,16 @@ export default function AgentsSettingsPage(): React.ReactElement {
         <BrowseDirectoryModal
           onClose={() => setBrowseOpen(false)}
           onPick={(profile) => {
-            setIdentityKind('erc8004_tempo')
+            const isSolana = profile.chain === 'solana'
+            setIdentityKind(isSolana ? 'sas_solana' : 'erc8004_tempo')
             setForm((f) => ({
               ...f,
-              erc8004_agent_id: profile.agent_id,
-              label: f.label.trim() || profile.display_name || `Agent ${profile.agent_id}`,
+              erc8004_agent_id: isSolana ? '' : (profile.agent_id ?? ''),
+              solana_pubkey: isSolana ? profile.owner_address : '',
+              label:
+                f.label.trim() ||
+                profile.display_name ||
+                (isSolana ? 'Solana agent' : `Agent ${profile.agent_id ?? profile.agent_identifier}`),
             }))
             setBrowseOpen(false)
           }}
@@ -805,7 +810,8 @@ function BrowseDirectoryModal({ onClose, onPick }: BrowseDirectoryModalProps) {
         (a.display_name ?? '').toLowerCase().includes(needle) ||
         (a.description ?? '').toLowerCase().includes(needle) ||
         a.capabilities.some((c) => c.toLowerCase().includes(needle)) ||
-        a.agent_id.includes(needle)
+        (a.agent_id ?? '').includes(needle) ||
+        a.agent_identifier.toLowerCase().includes(needle)
       )
     })
   }, [directoryQuery.data, search])
@@ -849,7 +855,12 @@ function BrowseDirectoryModal({ onClose, onPick }: BrowseDirectoryModalProps) {
             </div>
           ) : (
             <ul className="space-y-1.5">
-              {filteredAgents.map((agent) => (
+              {filteredAgents.map((agent) => {
+                const idLabel =
+                  agent.chain === 'solana'
+                    ? agent.agent_identifier
+                    : `erc8004:tempo:${agent.agent_id ?? 'unknown'}`
+                return (
                 <li key={agent.agent_identifier}>
                   <button
                     type="button"
@@ -860,10 +871,10 @@ function BrowseDirectoryModal({ onClose, onPick }: BrowseDirectoryModalProps) {
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2">
                         <span className="text-sm font-semibold text-[var(--text-primary)] truncate">
-                          {agent.display_name ?? `Agent ${agent.agent_id}`}
+                          {agent.display_name ?? (agent.chain === 'solana' ? 'Solana agent' : `Agent ${agent.agent_id}`)}
                         </span>
                         <span className="text-[10px] font-mono text-[var(--text-muted)]">
-                          erc8004:tempo:{agent.agent_id}
+                          {idLabel}
                         </span>
                       </div>
                       {agent.description && (
@@ -905,7 +916,8 @@ function BrowseDirectoryModal({ onClose, onPick }: BrowseDirectoryModalProps) {
                     <ExternalLink className="h-3.5 w-3.5 text-[var(--text-muted)] mt-1 shrink-0" />
                   </button>
                 </li>
-              ))}
+                )
+              })}
             </ul>
           )}
         </div>
