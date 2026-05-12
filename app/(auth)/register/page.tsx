@@ -5,7 +5,7 @@ import { usePrivy } from '@privy-io/react-auth'
 import { useRouter } from 'next/navigation'
 import { motion, AnimatePresence } from 'framer-motion'
 import { RemloLogo } from '@/components/brand/RemloLogo'
-import { getPrimaryPrivyEthereumWallet } from '@/lib/privy-wallet'
+import { getPrimaryPrivyEmbeddedEthereumWallet } from '@/lib/privy-wallet'
 
 const COMPANY_SIZES = [
   { value: '1-10', label: '1–10 employees' },
@@ -96,7 +96,7 @@ export default function RegisterPage() {
         body: JSON.stringify({
           companyName,
           companySize: companySize || undefined,
-          employerAdminWallet: getPrimaryPrivyEthereumWallet(user) ?? undefined,
+          employerAdminWallet: getPrimaryPrivyEmbeddedEthereumWallet(user) ?? undefined,
         }),
       })
 

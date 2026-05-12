@@ -28,7 +28,9 @@ export const metadata: Metadata = {
 
 const GITHUB_REPO_URL = 'https://github.com/winsznx/remlo'
 const TELEGRAM_URL = 'https://t.me/remlo_xyz'
-const MPPSCAN_URL = process.env.NEXT_PUBLIC_MPPSCAN_URL ?? 'https://mppscan.com'
+const MPPSCAN_URL =
+  process.env.NEXT_PUBLIC_MPPSCAN_URL ??
+  'https://mppscan.com/server/31eeff350dadaa1f7a0075be4991d62b2a3e2286b0c77f2fefa1381a28c566ae'
 const TEMPO_MPP_FEE_RECEIVER_URL = process.env.REMLO_TREASURY_ADDRESS
   ? `https://explore.moderato.tempo.xyz/address/${process.env.REMLO_TREASURY_ADDRESS}`
   : null

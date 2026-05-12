@@ -33,7 +33,7 @@ function ClientLoginContent() {
 
   const handleLogin = () => {
     setAuthError(null)
-    login({ loginMethods: ['email', 'sms', 'wallet'] })
+    login({ loginMethods: ['email', 'sms'] })
   }
 
   const handlePasskeyLogin = async () => {
@@ -61,7 +61,7 @@ function ClientLoginContent() {
     }
   })()
 
-  const primaryLabel = ready ? 'Continue with Email, SMS, or Wallet' : 'Loading…'
+  const primaryLabel = ready ? 'Continue with Email or SMS' : 'Loading…'
 
   const helperCopy = 'Sign in to your account.'
 

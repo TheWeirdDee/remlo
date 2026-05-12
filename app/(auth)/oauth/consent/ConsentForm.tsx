@@ -22,7 +22,7 @@ interface ConsentResponse {
  * navigate to.
  *
  * Approving requires an authenticated Privy session. If the user isn't
- * logged in, the form invokes Privy's login modal (email / sms / wallet
+ * logged in, the form invokes Privy's login modal (email / sms
  * methods, matching the rest of the app).
  */
 export function ConsentForm({ requestToken, clientName }: ConsentFormProps): React.JSX.Element {
@@ -32,7 +32,7 @@ export function ConsentForm({ requestToken, clientName }: ConsentFormProps): Rea
 
   const handleApprove = React.useCallback(async () => {
     if (!authenticated) {
-      login({ loginMethods: ['email', 'sms', 'wallet'] })
+      login({ loginMethods: ['email', 'sms'] })
       return
     }
     setError(null)

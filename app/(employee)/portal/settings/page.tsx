@@ -3,7 +3,7 @@
 import * as React from 'react'
 import Link from 'next/link'
 import { Bell, Building2, ChevronRight, CreditCard, Loader2, LogOut, Shield, User, Wallet } from 'lucide-react'
-import { useLinkWithPasskey, usePrivy, useSolanaWallets } from '@privy-io/react-auth'
+import { useLinkWithPasskey, usePrivy, useSolanaWallets, useWallets } from '@privy-io/react-auth'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { useEmployee, useEmployerForEmployee } from '@/lib/hooks/useEmployee'
@@ -12,6 +12,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { usePrivyAuthedFetch, usePrivyAuthedJson } from '@/lib/hooks/usePrivyAuthedFetch'
 import { cn } from '@/lib/utils'
+import { getPrimaryPrivyEmbeddedEthereumWallet } from '@/lib/privy-wallet'
 
 function Toggle({ checked, onChange }: { checked: boolean; onChange: (value: boolean) => void }) {
   return (
@@ -65,6 +66,15 @@ function ReadOnlyField({ label, value }: { label: string; value: string }) {
   )
 }
 
+function isSameAddress(a: string | null | undefined, b: string | null | undefined) {
+  return Boolean(a && b && a.toLowerCase() === b.toLowerCase())
+}
+
+function shortAddress(address: string | null | undefined) {
+  if (!address) return 'Not found'
+  return `${address.slice(0, 6)}...${address.slice(-4)}`
+}
+
 type NotificationPrefs = {
   payrollEmail: boolean
   kycEmail: boolean
@@ -87,18 +97,31 @@ export default function SettingsPage() {
   const queryClient = useQueryClient()
   const { user, logout } = usePrivy()
   const { linkWithPasskey } = useLinkWithPasskey()
+  const embeddedEthereumAddress = getPrimaryPrivyEmbeddedEthereumWallet(user)
+  const { ready: ethereumWalletsReady, wallets: ethereumWallets } = useWallets()
   const {
     createWallet: createSolanaWallet,
     ready: solanaWalletsReady,
     wallets: solanaWallets,
   } = useSolanaWallets()
   const solanaAddress = solanaWallets[0]?.address ?? null
+  const loadedEmbeddedEthereumWallet = React.useMemo(
+    () =>
+      ethereumWallets.find(
+        (wallet) =>
+          wallet.walletClientType === 'privy' &&
+          (!embeddedEthereumAddress || isSameAddress(wallet.address, embeddedEthereumAddress))
+      ) ?? null,
+    [embeddedEthereumAddress, ethereumWallets]
+  )
+  const embeddedWalletLoaded = Boolean(loadedEmbeddedEthereumWallet)
   const { data: employee, isLoading } = useEmployee()
   const { data: employer } = useEmployerForEmployee(employee?.employer_id)
   const [profile, setProfile] = React.useState({ firstName: '', lastName: '', countryCode: '' })
   const [savingProfile, setSavingProfile] = React.useState(false)
   const [linkingPasskey, setLinkingPasskey] = React.useState(false)
   const [creatingSolanaWallet, setCreatingSolanaWallet] = React.useState(false)
+  const [solanaWalletError, setSolanaWalletError] = React.useState<string | null>(null)
 
   const prefsQuery = useQuery<{ preferences: NotificationPrefs }>({
     queryKey: ['portal-preferences'],
@@ -170,12 +193,38 @@ export default function SettingsPage() {
   async function handleCreateSolanaWallet() {
     if (creatingSolanaWallet) return
 
+    setSolanaWalletError(null)
+
+    if (!embeddedEthereumAddress) {
+      const message =
+        'This account does not have a Privy embedded EVM wallet loaded as its payroll identity. Sign in with email or SMS so Privy can create/recover the embedded wallet before creating Solana.'
+      setSolanaWalletError(message)
+      toast.error(message)
+      return
+    }
+
+    if (!loadedEmbeddedEthereumWallet) {
+      const message =
+        'Your Privy embedded EVM wallet exists, but it is not loaded in this browser session yet. Sign out and sign back in with email or SMS, then try Create wallet again.'
+      setSolanaWalletError(message)
+      toast.error(message)
+      return
+    }
+
     setCreatingSolanaWallet(true)
     try {
+      await loadedEmbeddedEthereumWallet.getEthereumProvider()
       await createSolanaWallet()
       toast.success('Solana wallet created.')
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Unable to create Solana wallet.')
+      const message =
+        error instanceof Error && /not loaded on this device/i.test(error.message)
+          ? 'Privy could not unlock the embedded EVM wallet in this session. Sign out and sign back in with email or SMS so Privy can recover the embedded wallet, then try again.'
+          : error instanceof Error
+            ? error.message
+            : 'Unable to create Solana wallet.'
+      setSolanaWalletError(message)
+      toast.error(message)
     } finally {
       setCreatingSolanaWallet(false)
     }
@@ -247,14 +296,22 @@ export default function SettingsPage() {
               <p className="text-sm text-[var(--text-muted)]">
                 Create your embedded Solana wallet for salary streams and reputation.
               </p>
+              <p className="text-xs leading-5 text-[var(--text-muted)] sm:basis-full">
+                Embedded EVM: {shortAddress(embeddedEthereumAddress)} · Loaded here: {embeddedWalletLoaded ? 'yes' : 'no'}
+              </p>
               <Button
                 variant="outline"
                 onClick={() => void handleCreateSolanaWallet()}
-                disabled={!solanaWalletsReady || creatingSolanaWallet}
+                disabled={!solanaWalletsReady || !ethereumWalletsReady || creatingSolanaWallet}
               >
                 {creatingSolanaWallet ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
                 Create wallet
               </Button>
+              {solanaWalletError ? (
+                <p className="text-xs leading-5 text-[var(--status-error)] sm:basis-full">
+                  {solanaWalletError}
+                </p>
+              ) : null}
             </div>
           )}
         </div>

@@ -7,7 +7,7 @@ import { EmployerSidebar } from '@/components/employer/EmployerSidebar'
 import { EmployerHeader } from '@/components/employer/EmployerHeader'
 import { SystemAnnouncementBanner } from '@/components/system/SystemAnnouncementBanner'
 import { useEmployer } from '@/lib/hooks/useEmployer'
-import { getPrimaryPrivyEthereumWallet } from '@/lib/privy-wallet'
+import { getPrimaryPrivyEmbeddedEthereumWallet } from '@/lib/privy-wallet'
 
 export default function EmployerLayout({ children }: { children: React.ReactNode }) {
   const { user, authenticated, getAccessToken } = usePrivy()
@@ -27,7 +27,7 @@ export default function EmployerLayout({ children }: { children: React.ReactNode
   }, [])
 
   React.useEffect(() => {
-    const employerAdminWallet = getPrimaryPrivyEthereumWallet(user)
+    const employerAdminWallet = getPrimaryPrivyEmbeddedEthereumWallet(user)
 
     if (!authenticated || !employer?.id || !employer?.company_name || !employerAdminWallet) {
       return
