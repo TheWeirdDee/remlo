@@ -62,3 +62,8 @@ desktop.ini
 
 # Supabase CLI local state (project ref, version pins, etc.)
 supabase/
+.vercel
+.env.cf.production
+.env.production.local
+.wrangler
+.open-next
