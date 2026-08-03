@@ -27,21 +27,12 @@ export const metadata: Metadata = {
     url: '/',
     siteName: 'Remlo',
     type: 'website',
-    images: [
-      {
-        url: '/opengraph-image',
-        width: 1200,
-        height: 630,
-        alt: 'Remlo — payroll APIs for AI agents across Tempo MPP and Solana x402',
-      },
-    ],
   },
   twitter: {
     card: 'summary_large_image',
     title: 'Payroll APIs for AI agents | Remlo',
     description:
       'One Remlo API surface for Tempo MPP and Solana/Base x402. AI agents pay per call to trigger compliant payroll actions, escrow, reputation, and treasury workflows over HTTP 402.',
-    images: ['/twitter-image'],
   },
 }
 
